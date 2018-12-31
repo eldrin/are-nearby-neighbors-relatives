@@ -1,0 +1,9 @@
+[submodule "audio-perturbator"]
+	path = audio-perturbator
+	url = https://github.com/eldrin/audio-perturbator.git
+[submodule "audio-distances"]
+	path = audio-distances
+	url = https://github.com/eldrin/audio-distances.git
+[submodule "music-nn-models"]
+	path = music-nn-models
+	url = https://github.com/eldrin/music-nn-models.git
