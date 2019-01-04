@@ -30,15 +30,20 @@ def get_transform_range(transformer):
         transformer (BaseTransformer): instance of the transformer
     """
     if isinstance(transformer, PitchShifter):
-        return [-12, 12]
+        # return [-12, 12]
+        return [-6, 6]
     elif isinstance(transformer, TimeStretcher):
-        return [0.25, 1.5]
+        # return [0.25, 1.5]
+        return [0.5, 1.25]
     elif isinstance(transformer, PinkNoiseMixer):
-        return [-15, 30]
+        # return [-15, 30]
+        return [-9, 15]
     elif isinstance(transformer, PubAmbientMixer):
-        return [-15, 30]
+        # return [-15, 30]
+        return [-9, 15]
     elif isinstance(transformer, MP3Compressor):
-        return [8, 192]
+        # return [8, 192]
+        return [64, 128]
     else:
         raise NotImplementedError()
 
@@ -112,7 +117,7 @@ def transform(fns, out_root, n_jobs=1):
             partial(_transform,
                     transformer=T(),
                     out_root=out_root),
-            fns, n_workers=n_jobs, verbose=True
+            fns, total=len(fns), n_workers=n_jobs, verbose=True
         )
 
 

@@ -14,8 +14,19 @@ import librosa
 
 from musiclatentconsistency.utils import save_mulaw, load_mulaw
 from audiodistances.utils import parmap
-from musicnn.models import VGGlike2DAutoTagger
-from musicnn.datasets import TAGS
+from musicnn.models import (VGGlike2DAutoTagger,
+                            VGGlike2DAutoEncoder,
+                            VGGlike2DUNet)
+from musicnn.datasets.autotagging import TAGS
+from musicnn.datasets.instrecognition import CLS
+
+
+TASK_MODEL_MAP = {
+    'auto_tagging': partial(VGGlike2DAutoTagger, n_outputs=len(TAGS)),
+    'inst_recognition': partial(VGGlike2DAutoTagger, n_outputs=len(CLS)),
+    'auto_encoder': VGGlike2DAutoEncoder,
+    'source_separation': VGGlike2DUNet
+}
 
 
 def _extract_latent(fn, model, sr=22050):
@@ -32,7 +43,10 @@ def _extract_latent(fn, model, sr=22050):
         y, sr = librosa.load(fn, sr=sr)
 
     y = y.astype(np.float32)
-    return model.E(model.preproc(torch.from_numpy(y)[None])).data.numpy()
+    if len(y) > model.sig_len:
+        y = y[:model.sig_len]
+
+    return model.get_bottleneck(torch.from_numpy(y)[None]).data.numpy()
 
 
 def ext_latents(fns, out_fn, model, n_jobs=1):
@@ -47,7 +61,8 @@ def ext_latents(fns, out_fn, model, n_jobs=1):
     # process
     Z = parmap(
         partial(_extract_latent, model=model),
-        fns, n_workers=n_jobs, verbose=True
+        fns, n_workers=n_jobs, verbose=True,
+        total=len(fns)
     )
     # save the output
     np.save(out_fn, np.array(Z))
@@ -58,6 +73,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("music_files",
                         help='text file contains all the file names of music')
+    parser.add_argument("task", type=str, default='autotagging',
+                        choices=set(TASK_MODEL_MAP.keys()),
+                        help="type of the task of which the model is trained")
     parser.add_argument("model_path", help='path to model checkpoint dump')
     parser.add_argument("out_path", help='path to dump output files')
     parser.add_argument("--n-jobs", type=int, help='number of parallel jobs')
@@ -69,7 +87,7 @@ if __name__ == "__main__":
 
     # load the model
     checkpoint = torch.load(args.model_path, lambda a, b: a)
-    model = VGGlike2DAutoTagger(len(TAGS))
+    model = TASK_MODEL_MAP[args.task]()
     model.eval()
     model.load_state_dict(checkpoint['state_dict'])
 
