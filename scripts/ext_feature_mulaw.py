@@ -46,7 +46,7 @@ def ext_mfccs(fns, out_root, n_mfccs=25, n_jobs=1):
     """
     parmap(
         partial(_extract_mfcc, out_root=out_root),
-        fns, n_workers=n_jobs, verbose=True
+        fns, total=len(fns), n_workers=n_jobs, verbose=True
     )
     
 

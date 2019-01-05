@@ -30,20 +30,15 @@ def get_transform_range(transformer):
         transformer (BaseTransformer): instance of the transformer
     """
     if isinstance(transformer, PitchShifter):
-        # return [-12, 12]
-        return [-6, 6]
+        return [-12, -10, -8, -6, -4, -2, 2, 4, 6, 8, 10, 12]  # 12
     elif isinstance(transformer, TimeStretcher):
-        # return [0.25, 1.5]
-        return [0.5, 1.25]
+        return [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.1, 1.2, 1.3, 1.4, 1.5]  # 12
     elif isinstance(transformer, PinkNoiseMixer):
-        # return [-15, 30]
-        return [-9, 15]
+        return [-15, -10, -6, -3, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30]  # 14
     elif isinstance(transformer, PubAmbientMixer):
-        # return [-15, 30]
-        return [-9, 15]
+        return [-15, -10, -6, -3, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30]  # 14
     elif isinstance(transformer, MP3Compressor):
-        # return [8, 192]
-        return [64, 128]
+        return [8, 16, 24, 32, 40, 48, 64, 80, 96, 112, 128, 160, 192]  # 12
     else:
         raise NotImplementedError()
 
@@ -90,7 +85,7 @@ def _transform(fn, transformer, out_root, sr=22050):
         if isinstance(a, int):
             out_fn_tmp = '{}_{}_[{:d}].npy'
         elif isinstance(a, float):
-            out_fn_tmp = '{}_{}_[{:f}].npy'
+            out_fn_tmp = '{}_{}_[{:.1f}].npy'
         else:
             out_fn_tmp = '{}_{}_[{}].npy'
 
