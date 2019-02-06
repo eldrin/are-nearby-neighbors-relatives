@@ -12,6 +12,7 @@ import numpy as np
 import librosa
 
 from musiclatentconsistency.utils import save_mulaw, load_mulaw
+from musiclatentconsistency.config import Config as cfg
 from audiodistances.utils import parmap
 from audioperturbator.transform import (PitchShifter,
                                         TimeStretcher,
@@ -30,15 +31,15 @@ def get_transform_range(transformer):
         transformer (BaseTransformer): instance of the transformer
     """
     if isinstance(transformer, PitchShifter):
-        return [-12, -10, -8, -6, -4, -2, 2, 4, 6, 8, 10, 12]  # 12
+        return cfg.PERTURBATIONS['PS']
     elif isinstance(transformer, TimeStretcher):
-        return [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.1, 1.2, 1.3, 1.4, 1.5]  # 12
+        return cfg.PERTURBATIONS['TS']
     elif isinstance(transformer, PinkNoiseMixer):
-        return [-15, -10, -6, -3, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30]  # 14
+        return cfg.PERTURBATIONS['PN'] 
     elif isinstance(transformer, PubAmbientMixer):
-        return [-15, -10, -6, -3, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30]  # 14
+        return cfg.PERTURBATIONS['EN'] 
     elif isinstance(transformer, MP3Compressor):
-        return [8, 16, 24, 32, 40, 48, 64, 80, 96, 112, 128, 160, 192]  # 13
+        return cfg.PERTURBATIONS['MP'] 
     else:
         raise NotImplementedError()
 
