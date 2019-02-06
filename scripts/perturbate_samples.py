@@ -38,7 +38,7 @@ def get_transform_range(transformer):
     elif isinstance(transformer, PubAmbientMixer):
         return [-15, -10, -6, -3, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30]  # 14
     elif isinstance(transformer, MP3Compressor):
-        return [8, 16, 24, 32, 40, 48, 64, 80, 96, 112, 128, 160, 192]  # 12
+        return [8, 16, 24, 32, 40, 48, 64, 80, 96, 112, 128, 160, 192]  # 13
     else:
         raise NotImplementedError()
 
@@ -63,6 +63,29 @@ def get_suffix(transformer):
         raise NotImplementedError()
 
 
+def get_pert_id(transformer, magnitude):
+    """Get id of given perturbation and mangitude
+
+    Args:
+        transformer (BaseTransformer): transformation class
+        magnitude (int, float): level of perturbation
+
+    Returns:
+        str: identifier string
+    """
+    if isinstance(magnitude, int):
+        pert_id_tmp = '{}_[{:d}]'
+    elif isinstance(magnitude, float):
+        pert_id_tmp = '{}_[{:.1f}]'
+    else:
+        pert_id_tmp = '{}_[{}]'
+
+    pert_id = pert_id_tmp.format(
+        get_suffix(transformer), magnitude
+    )
+    return pert_id
+
+
 def _transform(fn, transformer, out_root, sr=22050):
     """Transform given signal and save
 
@@ -81,17 +104,10 @@ def _transform(fn, transformer, out_root, sr=22050):
     # transform
     for a in get_transform_range(transformer):
         y = transformer(x, a)
-        
-        if isinstance(a, int):
-            out_fn_tmp = '{}_{}_[{:d}].npy'
-        elif isinstance(a, float):
-            out_fn_tmp = '{}_{}_[{:.1f}].npy'
-        else:
-            out_fn_tmp = '{}_{}_[{}].npy'
 
-        out_fn = out_fn_tmp.format(
+        out_fn = '_'.join(
             basename(fn).split('.')[0],
-            get_suffix(transformer), a
+            get_pert_id(transformer, a)
         )
 
         # librosa.output.write_wav(join(out_root, out_fn), y, sr, norm=True)
