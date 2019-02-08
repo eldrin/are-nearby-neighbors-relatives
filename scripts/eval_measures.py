@@ -7,6 +7,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 import argparse
 from functools import partial
 import numpy as np
+import pandas as pd
 from tqdm import tqdm
 
 
@@ -15,13 +16,13 @@ from musiclatentconsistency.measures import within_space_consistency
 from musiclatentconsistency.utils import load_distance_data
 
 
-data = load_distance_data('/mnt/data/nmd/DTW.npy', n_originals=1000)
+data = load_distance_data('/mnt/data/nmd_dist/msdlastfm50/MCKL.npy', n_originals=1000)
 
 within_X = []
 pert_name_dict = {'PS':0, 'TS':1, 'PN':2, 'EN':3, 'MP':4}
-n_perts = sum([len(mags) for name, mags in PERTURBATIONS])
+n_perts = sum([len(mags) for name, mags in cfg.PERTURBATIONS])
 with tqdm(total=n_perts) as pbar:
-    for pert, magn in PERTURBATIONS:
+    for pert, magn in cfg.PERTURBATIONS:
 
         for mag in magn:
             pbar.update(1)

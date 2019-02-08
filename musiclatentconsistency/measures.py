@@ -1,3 +1,7 @@
+import pandas as pd
+import numpy as np
+
+
 def within_space_consistency(filtered_data, sample=None, verbose=False):
     """"""
     d = filtered_data.sample(frac=sample)  # aliasing
