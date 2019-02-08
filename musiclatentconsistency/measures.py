@@ -30,3 +30,30 @@ def within_space_consistency(filtered_data, sample=None, verbose=False):
             output[target] = np.NaN
         
     return output
+
+
+def between_space_consistency(D_x_t, D_z_t, mode='spearman', verbose=False):
+    """Consistency between the two space
+    
+    Args:
+        D_x_t (pd.DataFrame): contains the distance info from all 
+                              transformations to original on original
+                              data (x) domain
+        D_z_t (pd.DataFrame): same with above data, on embedding domain (z)
+        mode (str): flag for selecting measure mode {'spearman', 'accuracy'}
+        verbose (bool): flag to indicate verbosity
+    
+    Returns:
+        pd.DataFrame: between-space inconsistency
+    """
+    transformations = D_x_t['to_perturbation'].unique()
+    targets = D_x_t['from'].unique()
+    
+    for t in transformations:
+        d_x_t = D_x_t[D_x_t['to_perturbation'] == t]
+        d_z_t = D_z_t[D_z_t['to_perturbation'] == t]
+        
+        for target in targets:
+            # retrieve target
+            d_x_t_ = d_x_t[d_x_t['to'] != target]['distance']
+            d_z_t_ = d_z_t[d_z_t['to'] != target]['distance']
