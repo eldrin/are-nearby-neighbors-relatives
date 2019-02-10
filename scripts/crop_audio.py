@@ -28,10 +28,19 @@ def _random_crop(in_fn, out_root, sig_len, sr=22050):
         y = load_mulaw(in_fn)
     else:
         y, sr = librosa.load(in_fn, sr=sr)
-    
-    # randomly crop the signal with given length
-    start = np.random.choice(len(y) - sig_len)
-    y_ = y[start:start + sig_len]
+        
+    # if the input signal is shorter than desired length,
+    # pad it (both left and right side)
+    if len(y) < sig_len:
+        start = 0
+        to_pad = sig_len - len(y)
+        pad = np.zeros((int(to_pad / 2),), dtype=y.dtype)
+        y_ = np.r_[pad, y, pad]
+        
+    else:
+        # randomly crop the signal with given length
+        start = np.random.choice(len(y) - sig_len)
+        y_ = y[start:start + sig_len]
 
     out_fn = join(
         out_root,

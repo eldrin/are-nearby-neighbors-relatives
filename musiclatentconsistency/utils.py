@@ -1,58 +1,109 @@
+from os.path import join, basename, dirname
 import numpy as np
 import pandas as pd
+from scipy import sparse as sp
+from scipy.spatial.distance import cdist
 
 from .config import Config as cfg
 
 
-def load_distance_data(fn, n_originals, perturbations=cfg.PERTURBATIONS):
+def load_distance_data(data_fn, filelist_fn, domain='input',
+                       latent_metric='euclidean'):
     """Load and convert data to pandas DataFrame to ease of analysis
     
     Args:
-        fn (str): path to the data. contains list of triplets (i, j, d)
-    """
-    # load the dataset
-    data = pd.DataFrame(
-        np.load(fn), columns=['from', 'to', 'distance']
-    )
+        data_fn (str): path to the data.
+                       For input domain's case, contains list of triplets (i, j, d)
+                       For latent domain's case, contains latent points (n_points, dim)
+        filelist_fn (str): path to the meta-data. contains list of filenames
+        domain (str): flag for indicating which data domain is target
+                      {'input', 'latent'}
+        latent_metric (str): distance metric used to calculate distance between
+                             latent points. only used when domain == 'latent'
+                             {'euclidean', 'cosine'}
+                      
+    Returns:
+        sp.csr_matrix: (partial) distance matrix
+        pd.DataFrame: contains metadata 
+    """ 
+    # load metadata
+    with open(filelist_fn, 'r') as f:
+        metadata = parse_metadata(f.readlines())
     
-    # get idx-perturbation types / magnitude map
-    pert_mags = [0] * n_originals
-    pert_types = ['original'] * n_originals
-    pert_name_dict = {'PS':0, 'TS':1, 'PN':2, 'EN':3, 'MP':4}
-    for _ in range(n_originals):
-        for p_name, p_mags in perturbations:
-            for p_mag in p_mags:
-                pert_mags.append(p_mag)
-                # pert_types.append(p_name)
-                pert_types.append(pert_name_dict[p_name])
-    pert_mags = dict(enumerate(pert_mags))
-    pert_types = dict(enumerate(pert_types))
-    n_perts = sum([len(mags) for name, mags in perturbations])
-
-    # get idx-original_idx map
-    rawidx2orgidx = {}
-    for i in range(n_originals):
-        for j in range(n_perts):
-            rawidx2orgidx[n_originals + i * n_perts + j] = i
-        rawidx2orgidx[i] = i
+    # load distance data
+    if domain == 'input':
+        D = np.load(data_fn)
+        D = sp.coo_matrix(
+            (D[:, 2], (D[:, 0].astype(int), D[:, 1].astype(int))),
+        ).tocsr()
         
-    # applying maps to generate full dataset
-    data.loc[:, 'from_perturbation'] = data['from'].map(pert_types)
-    data.loc[:, 'from_magnitude'] = data['from'].map(pert_mags)
-    data.loc[:, 'to_perturbation'] = data['to'].map(pert_types)
-    data.loc[:, 'to_magnitude'] = data['to'].map(pert_mags)
-    data.loc[:, 'from_original_idx'] = data['from'].map(rawidx2orgidx)
-    data.loc[:, 'to_original_idx'] = data['to'].map(rawidx2orgidx)
+    elif domain == 'latent':
+        Z = np.load(data_fn)        
+        D = calc_latent_dist(Z, metadata, metric=latent_metric)
+        D = sp.coo_matrix(D).tocsr()
+
+    else:
+        raise ValueError("[ERROR] only 'input' and 'latent' is supportd!")
+        
+    return D, metadata
+
+
+def parse_metadata(fns):
+    """Parse filenames to build metadata 
     
-    # drop unnecessary cols
-    data.drop(['from', 'to'], axis=1, inplace=True)
-    data.rename(
-        index=str,
-        columns={"from_original_idx": "from", "to_original_idx": "to"},
-        inplace=True
-    )
+    Args:
+        fns (list): a list that contains filenames
+        
+    Returns:
+        pd.DataFrame: a structured table contains parsed info
+    """
+    def parse_base(fn):
+        x = basename(fn.replace('\n', ''))
+        x = x.split('.npy')[0]
+        x = x.split('_')
+        return x
     
-    return data
+    data = []
+    for fn, row in zip(fns, map(parse_base, fns)):
+        d = {'audio_id': row[0], 'start': row[1], 'end': row[2]}
+        if len(row) < 5:
+            d.update({'transform': 'original', 'magnitude': 0})
+        else:
+            d.update({'transform': row[3],
+                      'magnitude': float(row[4][1:-1])})
+        d.update({'fn': fn})
+        data.append(d)
+
+    return pd.DataFrame(data)
+
+
+def calc_latent_dist(Z, metadata, metric='euclidean'):
+    """Calculate distance (as same as X domain) between point in Z
+    
+    Args:
+        Z (np.ndarray): input n-dimensional points (n_points, n_dim)
+        metadata (pd.DataFrame): contains metadata for each point
+    
+    Returns:
+        sp.csr_matrix: resulted data
+    """
+    originals = metadata[metadata['transform'] == 'original']
+    mask = np.zeros(Z.shape[0], dtype=bool)
+    mask[originals.index] = True
+    z_original = Z[mask]
+    return cdist(z_original, Z, metric=metric).T
+    
+
+def to_dense(csr_mat):
+    """Convert csr matrix to dense ndarray
+    
+    Args:
+        csr_mat (sp.csr_matrix): input sparse (slice) matrix
+    
+    Returns:
+        np.ndarray: converted matrix
+    """
+    return np.array(csr_mat.todense())
 
 
 def save_mulaw(fn, y, sr=22050, quantization_channel=256):

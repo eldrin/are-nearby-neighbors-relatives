@@ -106,10 +106,10 @@ def _transform(fn, transformer, out_root, sr=22050):
     for a in get_transform_range(transformer):
         y = transformer(x, a)
 
-        out_fn = '_'.join(
+        out_fn = '_'.join([
             basename(fn).split('.')[0],
             get_pert_id(transformer, a)
-        )
+        ])
 
         # librosa.output.write_wav(join(out_root, out_fn), y, sr, norm=True)
         save_mulaw(join(out_root, out_fn), librosa.util.normalize(y))

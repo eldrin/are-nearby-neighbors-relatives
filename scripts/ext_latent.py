@@ -1,5 +1,5 @@
 import os
-from os.path import join, abspath, basename, splitext
+from os.path import join, abspath, basename, dirname, splitext
 import sys
 # add repo root to the system path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -10,9 +10,10 @@ import argparse
 from functools import partial
 import torch
 import numpy as np
+import pandas as pd
 import librosa
 
-from musiclatentconsistency.utils import save_mulaw, load_mulaw
+from musiclatentconsistency.utils import save_mulaw, load_mulaw, parse_metadata
 from audiodistances.utils import parmap
 from musicnn.models import (VGGlike2DAutoTagger,
                             VGGlike2DAutoEncoder,
@@ -44,9 +45,15 @@ def _extract_latent(fn, model, sr=22050):
 
     y = y.astype(np.float32)
     if len(y) > model.sig_len:
-        y = y[:model.sig_len]
+        # find the center and crop from there
+        mid = int(len(y) / 2)
+        half_len = int(model.sig_len / 2)
+        start_point = mid - half_len
+        y = y[start_point: start_point + model.sig_len]
 
-    return model.get_bottleneck(torch.from_numpy(y)[None]).data.numpy()
+    return model.get_bottleneck(
+        torch.from_numpy(y)[None]
+    ).data.numpy()[0]
 
 
 def ext_latents(fns, out_fn, model, n_jobs=1):
@@ -66,7 +73,7 @@ def ext_latents(fns, out_fn, model, n_jobs=1):
     )
     # save the output
     np.save(out_fn, np.array(Z))
-
+    
 
 if __name__ == "__main__":
     # setup argparser
@@ -77,13 +84,16 @@ if __name__ == "__main__":
                         choices=set(TASK_MODEL_MAP.keys()),
                         help="type of the task of which the model is trained")
     parser.add_argument("model_path", help='path to model checkpoint dump')
-    parser.add_argument("out_path", help='path to dump output files')
+    parser.add_argument("out_fn", help='filename to dump latent points and metadata')
     parser.add_argument("--n-jobs", type=int, help='number of parallel jobs')
     args = parser.parse_args() 
 
     # load the file list
     with open(args.music_files) as f:
         fns = [l.replace('\n', '') for l in f.readlines()]
+    
+    # parse the metadata
+    metadata = parse_metadata(fns)
 
     # load the model
     checkpoint = torch.load(args.model_path, lambda a, b: a)
@@ -92,4 +102,12 @@ if __name__ == "__main__":
     model.load_state_dict(checkpoint['state_dict'])
 
     # process!
-    ext_latents(fns, args.out_path, model, n_jobs=args.n_jobs)
+    ext_latents(metadata.fn.values, args.out_fn, model, n_jobs=args.n_jobs)
+    
+    # save metadata
+    metadata.to_csv(
+        join(
+            dirname(args.out_fn),
+            basename(args.out_fn).split('.')[0] + '.csv'
+        )
+    )
