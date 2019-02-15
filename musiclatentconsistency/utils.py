@@ -1,4 +1,5 @@
 from os.path import join, basename, dirname
+import re
 import numpy as np
 import pandas as pd
 from scipy import sparse as sp
@@ -131,3 +132,7 @@ def load_mulaw(fn, quantization_channel=256):
     signal = 2 * (signal / mu) - 1
     magnitude = (1 / mu) * ((1 + mu)**np.abs(signal) - 1)
     return np.sign(signal) * magnitude
+
+
+def parse_bracket(s):
+    return re.findall('\[(.*?)\]', s)

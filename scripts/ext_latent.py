@@ -35,7 +35,6 @@ def _extract_latent(fn, model, sr=22050):
 
     Args:
         fn (str): filename for a single music file
-        out_root (str): path to dump output MFCCs
         sr (int): sampling rate
     """
     if basename(fn).split('.')[-1] == 'npy':
@@ -56,21 +55,52 @@ def _extract_latent(fn, model, sr=22050):
     ).data.numpy()[0]
 
 
-def ext_latents(fns, out_fn, model, n_jobs=1):
-    """Extract MFCCs
+def _extract_mfcc(fn, sr=22050):
+    """Extract MFCC
+    
+    Args:
+        fn (str): filename for a single music file
+        sr (int): sampling rate
+    
+    Returns:
+        np.ndarray: MFCC feature vector
+    """
+    if basename(fn).split('.')[-1] == 'npy':
+        y = load_mulaw(fn)
+    else:
+        y, sr = librosa.load(fn, sr=sr)
+
+    # get MFCC vectors (t, n_mfcc)
+    m = librosa.feature.mfcc(y, sr=sr).T 
+    dm = m[1:] - m[:-1]
+    ddm = dm[1:] - dm[:-1]
+    
+    # get stats
+    feature = np.r_[
+        m.mean(0), dm.mean(0), ddm.mean(0),
+        m.std(0), dm.std(0), ddm.std(0)
+    ]
+    
+    return feature  # (n_mfcc * 6,)
+
+
+def ext_latents(fns, out_fn, model=None, n_jobs=1):
+    """Extract latent features
 
     Args:
         fns (str): file name of the music
         out_fn (str): path to dump files
-        model (BaseModel): model used for the extraction
+        model (BaseModel, None, 'mfcc'): model used for the extraction
         n_jobs (int): number of parallel jobs
     """
+    if (model is None) or (model == 'mfcc'):
+        f = _extract_mfcc
+    else:
+        f = partial(_extract_latent, model=model)
+        
     # process
-    Z = parmap(
-        partial(_extract_latent, model=model),
-        fns, n_workers=n_jobs, verbose=True,
-        total=len(fns)
-    )
+    Z = parmap(f, fns, n_workers=n_jobs, verbose=True, total=len(fns))
+    
     # save the output
     np.save(out_fn, np.array(Z))
     
@@ -96,10 +126,13 @@ if __name__ == "__main__":
     metadata = parse_metadata(fns)
 
     # load the model
-    checkpoint = torch.load(args.model_path, lambda a, b: a)
-    model = TASK_MODEL_MAP[args.task]()
-    model.eval()
-    model.load_state_dict(checkpoint['state_dict'])
+    if args.model_path != 'mfcc':
+        checkpoint = torch.load(args.model_path, lambda a, b: a)
+        model = TASK_MODEL_MAP[args.task]()
+        model.eval()
+        model.load_state_dict(checkpoint['state_dict']) 
+    else:
+        model = args.model_path
 
     # process!
     ext_latents(metadata.fn.values, args.out_fn, model, n_jobs=args.n_jobs)

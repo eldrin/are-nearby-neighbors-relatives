@@ -1,10 +1,10 @@
 import os
-from os.path import join, abspath, basename, splitext
+from os.path import join, abspath, basename, splitext, dirname
 import sys
 # add repo root to the system path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'audio-perturbator'))
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'audio-distances'))
+sys.path.append(join(dirname(__file__), '..'))
+sys.path.append(join(dirname(__file__), '..', 'audio-perturbator'))
+sys.path.append(join(dirname(__file__), '..', 'audio-distances'))
 
 import argparse
 from functools import partial
@@ -18,7 +18,8 @@ from audioperturbator.transform import (PitchShifter,
                                         TimeStretcher,
                                         PinkNoiseMixer,
                                         PubAmbientMixer,
-                                        MP3Compressor)
+                                        MP3Compressor,
+                                        Identity)
 
 ALL_TRANSFORMERS = (PitchShifter, TimeStretcher, PinkNoiseMixer,
                     PubAmbientMixer, MP3Compressor)
@@ -39,7 +40,9 @@ def get_transform_range(transformer):
     elif isinstance(transformer, PubAmbientMixer):
         return cfg.PERTURBATIONS['EN'] 
     elif isinstance(transformer, MP3Compressor):
-        return cfg.PERTURBATIONS['MP'] 
+        return cfg.PERTURBATIONS['MP']  
+    elif isinstance(transformer, Identity):
+        return [0]
     else:
         raise NotImplementedError()
 
@@ -60,6 +63,8 @@ def get_suffix(transformer):
         return 'EN'
     elif isinstance(transformer, MP3Compressor):
         return 'MP'
+    elif isinstance(transformer, Identity):
+        return 'OG'
     else:
         raise NotImplementedError()
 
@@ -116,12 +121,11 @@ def _transform(fn, transformer, out_root, sr=22050):
 
 
 def transform(fns, out_root, n_jobs=1):
-    """Extract MFCCs
+    """Transform given audio files
 
     Args:
         fns (str): file name of the music
         out_root (str): path to dump files
-        n_mfcc (int): number of coefficients
         n_jobs (int): number of parallel jobs
     """
     for T in ALL_TRANSFORMERS:

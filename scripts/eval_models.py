@@ -6,20 +6,29 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'music-nn-models'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'audio-distances'))
 
+from collections import namedtuple
 import argparse
 import re
 from functools import partial
+import pickle as pkl
+
 import torch
 import numpy as np
 import pandas as pd
 import librosa
 from sklearn.metrics import accuracy_score
+import museval
+from tqdm import tqdm
 
-from musiclatentconsistency.utils import save_mulaw, load_mulaw, parse_metadata
-from audiodistances.utils import parmap
+from musiclatentconsistency.utils import (save_mulaw,
+                                          load_mulaw,
+                                          parse_metadata,
+                                          parse_bracket)
+from audiodistances.utils import parmap 
 from musicnn.models import (VGGlike2DAutoTagger,
                             VGGlike2DAutoEncoder,
                             VGGlike2DUNet)
+from musicnn.config import Config as cfg
 from musicnn.datasets.autotagging import TAGS
 from musicnn.datasets.instrecognition import CLS
 from musicnn.datasets import files
@@ -36,7 +45,7 @@ TASK_MODEL_MAP = {
 }
 TASK_LABEL_MAP = {
     'auto_tagging': pkl.load(open(files.msd_lastfm50_label(), 'rb')),
-    'inst_recognition': lambda audio_id: re.findall('\[(.*?)\]', audio_id)[0],
+    'inst_recognition': lambda audio_id: parse_bracket(audio_id)[0],
     'auto_encoder': None,
     'source_separation': None
 }
@@ -70,7 +79,7 @@ def _forward(fn, model, sr=22050):
         y = load_mulaw(fn)
     else:
         y, sr = librosa.load(fn, sr=sr)
-
+    
     y = y.astype(np.float32)
     if len(y) > model.sig_len:
         # find the center and crop from there
@@ -78,8 +87,14 @@ def _forward(fn, model, sr=22050):
         half_len = int(model.sig_len / 2)
         start_point = mid - half_len
         y = y[start_point: start_point + model.sig_len]
-
-    return model(torch.from_numpy(y)[None]).data.numpy()[0]
+    
+    elif len(y) < model.sig_len:
+        # zero-pad
+        rem = model.sig_len - len(y)
+        y = np.r_[y, np.zeros((rem,), dtype=y.dtype)]
+    
+    inp = torch.from_numpy(y)[None]
+    return y, model(inp).data.numpy()[0]
 
 
 def convert_idx_to_onehot(indices, n_labels):
@@ -89,7 +104,12 @@ def convert_idx_to_onehot(indices, n_labels):
     return y
 
 
-def evaluate_clips(fns, model, task, verbose=False):
+# for evaluation of bss
+Track = namedtuple('Track', ['targets', 'rate'])
+Target = namedtuple('Target', ['audio'])
+
+
+def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
     """Evaluate given audio clips wrt tasks
     
     Args:
@@ -98,16 +118,30 @@ def evaluate_clips(fns, model, task, verbose=False):
         task (str): corresponding task for model
                     {'auto_tagging', 'inst_recognition',
                      'auto_encoder', 'source_separation'}
+        batch_sz (int): size of batch to process every iteration
+        verbose (bool): verbosity flag
     
     Returns:
         pd.DataFrame: a table contains results
     """
-    if verbose: fns = tqdm(fns, ncols=80)
-        
+    file_ext = '.' + fns[0].split('.')[-1]
+    if verbose: fns = tqdm(fns, ncols=80) 
+    
+    # # get metadata
+    # metadata = pd.DataFrame(
+    #     [parse_fn(fn.replace(file_ext, '')) for fn in fns]
+    # )
+    # metadata['fns'] = fns
+    
     TRUES, PREDS = {}, {}
     for fn in fns:
+    # for fns_ in metadata.groupby(['transform', 'magnitude'])['fns'].apply(list):
+        
         info = parse_fn(fn)
-        key = '{}_{}'.format(info['transform'], info['magnitude'])
+        key = '{}_{}'.format(
+            info['transform'],
+            info['magnitude'].split(file_ext)[0]
+        )
         
         # register if not stored ever
         if key not in TRUES:
@@ -116,15 +150,19 @@ def evaluate_clips(fns, model, task, verbose=False):
         if key not in PREDS:
             PREDS[key] = []
         
+        if task == 'source_separation':
+            if not bool(np.random.binomial(1, 0.1)):
+                continue
+                
         # prepare data & forward
-        pred = _forward(fn, model) 
+        inp, pred = _forward(fn, model)
         
         # retrieve the ground truth and measure clip-wise metric
         if task == 'auto_tagging':
             # retrieve tags
             true = [
                 TAGS[tag] for tag
-                in TASK_LABEL_MAP[task][info['audio_id'] + '.npy']:
+                in TASK_LABEL_MAP[task][info['audio_id'] + '.npy']
             ]
             TRUES[key].append(convert_idx_to_onehot(true, len(TAGS)))
             PREDS[key].append(pred)
@@ -132,7 +170,6 @@ def evaluate_clips(fns, model, task, verbose=False):
         elif task == 'inst_recognition':
             # retrieve pre-dominant instrument
             true = CLS[TASK_LABEL_MAP[task](info['audio_id'])] 
-            true = convert_idx_to_onehot(true, len(CLS))
             
             TRUES[key].append(true)
             PREDS[key].append(np.argmax(pred))
@@ -144,37 +181,117 @@ def evaluate_clips(fns, model, task, verbose=False):
             PREDS[key].append(pred)
             
         elif task == 'source_separation':
-            raise ValueError('[ERROR] Source separation is not supported yet!')
-        else: 
-            raise ValueError('[ERROR] Source separation is not supported yet!')        
+            if '_mixture_' not in fn:
+                continue
+                
+            phase = np.angle(
+                librosa.stft(inp, n_fft=cfg.N_FFT, hop_length=cfg.HOP_SZ)
+            )[None]
+            pred_v = model._post_process(torch.from_numpy(pred)[None], phase)[0]
+            pred_a = inp[:len(pred_v)] - pred_v
+            
+            # get ground truth sources
+            true_v, _ = librosa.load(
+                fn.replace('_mixture_', '_vocals_'), sr=cfg.SAMPLE_RATE)
+            true_a, _ = librosa.load(
+                fn.replace('_mixture_', '_accomp_'), sr=cfg.SAMPLE_RATE)
+            
+            TRUES[key].append((true_v[:len(pred_v), None], true_a[:len(pred_a), None]))
+            PREDS[key].append((pred_v[:, None], pred_a[:, None])) 
+        else:
+            raise ValueError('[ERROR] Source separation is not supported yet!')      
     
     # calc metrics
     errors = []
-    if task == 'auto_tagging':
-        TRUES, PREDS = np.array(TRUES), np.array(PREDS)
-        errors = {
-            'ndcg@10': ndcg(TRUES, PREDS, k=10),
-            'ap@10': apk(TRUES, PREDS, k=10),
-            'roc-auc-track': roc_auc_score(TRUES, PREDS, average='samples'),
-            'roc-auc-tag': roc_auc_score(TRUES, PREDS, average='macro')
-        }
-    elif task == 'inst_recognition':
-        errors = {
-            'accuracy': accuracy_score(TRUES, PREDS)
-        }
+    for transform in TRUES.keys():
+        transform_name = transform.split('_')[0]
+        transform_mag = float(parse_bracket(transform.split('_')[1])[0])
         
-    elif task == 'auto_encoder':
-        TRUES, PREDS = np.array(TRUES), np.array(PREDS)
-        errors = {
-            'mse': np.mean((TRUES - PREDS)**2)
-        }
-        
-    elif task == 'source_separation':
-        raise ValueError('[ERROR] Source separation is not supported yet!')
-    else: 
-        raise ValueError('[ERROR] Source separation is not supported yet!')        
+        if task == 'auto_tagging':
+            t, p = np.array(TRUES[transform]), np.array(PREDS[transform])
+            if not np.all(t.sum(axis=0) != 0):
+                mask = t.sum(axis=0) != 0
+                t, p = t[:, mask], p[:, mask]
             
-    return errors
+            errors.append({
+                'transform': transform_name,
+                'magnitude': transform_mag,
+                'ndcg@10': ndcg(t, p, k=10),
+                'ap@10': apk(t, p, k=10),
+                'roc-auc-track': roc_auc_score(t, p, average='samples'),
+                'roc-auc-tag': roc_auc_score(t, p, average='macro')
+            })
+            
+        elif task == 'inst_recognition':
+            t, p = np.array(TRUES[transform]), np.array(PREDS[transform])
+            errors.append({
+                'transform': transform_name,
+                'magnitude': transform_mag,
+                'accuracy': accuracy_score(t, p)
+            })
+
+        elif task == 'auto_encoder':
+            t, p = np.array(TRUES[transform]), np.array(PREDS[transform])
+            errors.append({
+                'transform': transform_name,
+                'magnitude': transform_mag,
+                'mse': np.mean((t - p)**2)
+            })
+
+        elif task == 'source_separation':
+            result = {
+                'transform': transform_name,
+                'magnitude': transform_mag
+            }
+            
+            local_results = []
+            n_skipped = 0
+            for (t_v, t_a), (p_v, p_a) in zip(TRUES[transform],
+                                              PREDS[transform]):               
+                if np.all(t_v == 0) or np.all(t_a == 0):
+                    n_skipped += 1
+                    continue
+                    
+                # make the length same
+                shortest_v = min([t_v.shape[0], p_v.shape[0]])
+                shortest_a = min([t_a.shape[0], p_a.shape[0]])
+                t_v, p_v = t_v[:shortest_v], p_v[:shortest_v]
+                t_a, p_a = t_a[:shortest_a], p_a[:shortest_a]
+                    
+                track = Track(
+                    targets={
+                        'vocals': Target(audio=t_v),
+                        'accompaniment': Target(audio=p_v)
+                    },
+                    rate=cfg.SAMPLE_RATE
+                ) 
+                 
+                local_results.append(
+                    museval.eval_mus_track(
+                        track,
+                        {'vocals': p_v, 'accompaniment': p_a}
+                    ).scores['targets']
+                )
+            # print('Total {:d} cases skipped!'.format(n_skipped))
+            
+            res = []
+            for k, track in enumerate(local_results):
+                for target in track:
+                    for i, frame in enumerate(target['frames']):
+                        res.append({ 
+                            'transform': transform_name,
+                            'magnitude': transform_mag,
+                            'track': k, 
+                            'target': target['name'],
+                            'frame': i,
+                        })
+                        res[-1].update(frame['metrics'])
+            errors.extend(res)
+            
+        else: 
+            raise ValueError('[ERROR] Source separation is not supported yet!')        
+
+    return pd.DataFrame(errors)
 
 
 if __name__ == "__main__":
@@ -187,15 +304,11 @@ if __name__ == "__main__":
                         help="type of the task of which the model is trained")
     parser.add_argument("model_path", help='path to model checkpoint dump')
     parser.add_argument("out_fn", help='filename to dump latent points and metadata')
-    parser.add_argument("--n-jobs", type=int, help='number of parallel jobs')
     args = parser.parse_args() 
 
     # load the file list
     with open(args.music_files) as f:
         fns = [l.replace('\n', '') for l in f.readlines()]
-    
-    # parse the metadata
-    metadata = parse_metadata(fns)
 
     # load the model
     checkpoint = torch.load(args.model_path, lambda a, b: a)
@@ -204,12 +317,7 @@ if __name__ == "__main__":
     model.load_state_dict(checkpoint['state_dict'])
     
     # process!
-    results = evaluate_clips(metadata.fn.values, args.out_fn, model, n_jobs=args.n_jobs)
+    results = evaluate_clips(fns, model, args.task, verbose=True)
     
-    # save metadata
-    metadata.to_csv(
-        join(
-            dirname(args.out_fn),
-            basename(args.out_fn).split('.')[0] + '.csv'
-        )
-    )
+    # save
+    results.to_csv(args.out_fn)
