@@ -8,7 +8,8 @@ from .config import Config as cfg
 from .utils import to_dense
 
 
-def within_space_error(D, metadata, verbose=False):
+def within_space_error(D, metadata, perturbations=cfg.PERTURBATIONS,
+                       verbose=False):
     """Compute within-space consistency
     
     Args:
@@ -20,12 +21,14 @@ def within_space_error(D, metadata, verbose=False):
         pd.DataFrame: contains error info   
     """
     # filter out originals only
-    originals = metadata[metadata['transform'] == 'original']
+    originals = metadata[metadata['transform'] == 'OG']
     result = []  # main container for output
     it = originals.index
     if verbose:
         it = tqdm(it, ncols=80)
         
+    perturbations.update({'OG': [0]})
+    perturbations.move_to_end('OG', last=False)
     for s in it:
         # get idx of originals of others
         s_id = metadata.loc[s, 'audio_id']
@@ -33,12 +36,12 @@ def within_space_error(D, metadata, verbose=False):
         mdata_ = metadata[metadata['audio_id'] == s_id]
 
         # for each perturbation and magnitude, get error
-        for pert, magn in cfg.PERTURBATIONS:
+        for pert, magn in perturbations.items():
             targets = mdata_[mdata_['transform'] == pert]
 
             for mag in magn:
                 targets_ = targets[targets['magnitude'] == mag]
-
+                
                 # if any 'other' point is more close to the transformation
                 # of the 'original' point, it'll be considered as error
                 d_ts_s = to_dense(D[targets_.index, s]).ravel()
@@ -57,7 +60,8 @@ def within_space_error(D, metadata, verbose=False):
 
 
 def between_space_consistency_spearman(
-        Dx, Dz, x_metadata, z_metadata, verbose=False):
+        Dx, Dz, x_metadata, z_metadata, perturbations=cfg.PERTURBATIONS,
+        verbose=False):
     """Consistency between the two space
     
     Args:
@@ -73,8 +77,8 @@ def between_space_consistency_spearman(
         pd.DataFrame: between-space inconsistency
     """
     result = []
-    orig_x = x_metadata[x_metadata['transform'] == 'original']
-    orig_z = z_metadata[z_metadata['transform'] == 'original']
+    orig_x = x_metadata[x_metadata['transform'] == 'OG']
+    orig_z = z_metadata[z_metadata['transform'] == 'OG']
     orig_indices = (
         orig_x
         .reset_index()
@@ -86,7 +90,9 @@ def between_space_consistency_spearman(
     ix_orig_x = orig_indices.index_x.values.tolist()
     ix_orig_z = orig_indices.index_y.values.tolist()
 
-    it = cfg.PERTURBATIONS + [('original', [0])]
+    perturbations.update({'OG': [0]})
+    perturbations.move_to_end('OG', last=False)
+    it = perturbations.items()
     if verbose: it = tqdm(it, ncols=80) 
     for pert, magn in it:
         x_pert = x_metadata[x_metadata['transform'] == pert]

@@ -25,22 +25,26 @@ ALL_TRANSFORMERS = (PitchShifter, TimeStretcher, PinkNoiseMixer,
                     PubAmbientMixer, MP3Compressor)
 
 
-def get_transform_range(transformer):
+def get_transform_range(transformer, perturbations):
     """Get transformation range according to the input transformer
 
     Args:
         transformer (BaseTransformer): instance of the transformer
+        perturbations (OrderedDict): perturbation set
+    
+    Returns:
+        list: a range of magnitudes w.r.t the perturbation
     """
     if isinstance(transformer, PitchShifter):
-        return cfg.PERTURBATIONS['PS']
+        return perturbations['PS']
     elif isinstance(transformer, TimeStretcher):
-        return cfg.PERTURBATIONS['TS']
+        return perturbations['TS']
     elif isinstance(transformer, PinkNoiseMixer):
-        return cfg.PERTURBATIONS['PN'] 
+        return perturbations['PN'] 
     elif isinstance(transformer, PubAmbientMixer):
-        return cfg.PERTURBATIONS['EN'] 
+        return perturbations['EN'] 
     elif isinstance(transformer, MP3Compressor):
-        return cfg.PERTURBATIONS['MP']  
+        return perturbations['MP']  
     elif isinstance(transformer, Identity):
         return [0]
     else:
@@ -82,7 +86,7 @@ def get_pert_id(transformer, magnitude):
     if isinstance(magnitude, int):
         pert_id_tmp = '{}_[{:d}]'
     elif isinstance(magnitude, float):
-        pert_id_tmp = '{}_[{:.1f}]'
+        pert_id_tmp = '{}_[{:.3f}]'
     else:
         pert_id_tmp = '{}_[{}]'
 
@@ -92,13 +96,15 @@ def get_pert_id(transformer, magnitude):
     return pert_id
 
 
-def _transform(fn, transformer, out_root, sr=22050):
+def _transform(fn, transformer, out_root,
+               perturbations=cfg.PERTURBATIONS,sr=22050):
     """Transform given signal and save
 
     Args:
         fn (str): path to the input signal
         transformer (BaseTransformer): transformation class
         out_root (str): path to dump outputs
+        perturbations (OrderedDict): perturbations set
         sr (int): sampling rate of given input signal
     """
     # load the signal
@@ -108,7 +114,7 @@ def _transform(fn, transformer, out_root, sr=22050):
         x, sr = librosa.load(fn, sr=sr)
 
     # transform
-    for a in get_transform_range(transformer):
+    for a in get_transform_range(transformer, perturbations):
         y = transformer(x, a)
 
         out_fn = '_'.join([
@@ -117,10 +123,12 @@ def _transform(fn, transformer, out_root, sr=22050):
         ])
 
         # librosa.output.write_wav(join(out_root, out_fn), y, sr, norm=True)
-        save_mulaw(join(out_root, out_fn), librosa.util.normalize(y))
+        save_mulaw(join(out_root, out_fn),
+                   librosa.util.normalize(y))
 
 
-def transform(fns, out_root, n_jobs=1):
+def transform(fns, out_root, perturbations=cfg.PERTURBATIONS,
+              n_jobs=1):
     """Transform given audio files
 
     Args:
@@ -132,6 +140,7 @@ def transform(fns, out_root, n_jobs=1):
         parmap(
             partial(_transform,
                     transformer=T(),
+                    perturbations=perturbations,
                     out_root=out_root),
             fns, total=len(fns), n_workers=n_jobs, verbose=True
         )
@@ -143,12 +152,21 @@ if __name__ == "__main__":
     parser.add_argument("music_files",
                         help='text file contains all the file names of music')
     parser.add_argument("out_path", help='path to dump output files')
+    parser.add_argument("resolution_type", type=str, default='low',
+                        help='resolution of perturbation {"low", "high"}')
     parser.add_argument("--n-jobs", type=int, help='number of parallel jobs')
-    args = parser.parse_args() 
+    args = parser.parse_args()
 
     # load the file list
     with open(args.music_files) as f:
         fns = [l.replace('\n', '') for l in f.readlines()]
+        
+    # set resolution
+    perturb = (
+        cfg.PERTURBATIONS
+        if args.resolution_type == 'low'
+        else cfg.PERTURBATIONS_HI_RES
+    )
 
     # process!
-    transform(fns, args.out_path, n_jobs=args.n_jobs)
+    transform(fns, args.out_path, perturb, n_jobs=args.n_jobs)

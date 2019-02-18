@@ -49,6 +49,30 @@ def load_distance_data(data_fn, filelist_fn, domain='input',
     return D, metadata
 
 
+def parse_fn(fn):
+    """"""
+    parsed = basename(fn.replace('\n', '')).split('_')
+    if all(['_{}_'.format(pt) not in fn
+            for pt in set(cfg.PERTURBATIONS.keys())]):  # originals
+        audio_id = '_'.join(parsed[:-2])
+        return {
+            'audio_id': audio_id,
+            'start': parsed[-2],
+            'end': parsed[-1],
+            'transform': 'OG',
+            'magnitude': '[0.]'
+        }
+    else:  # transformed
+        audio_id = '_'.join(parsed[:-4])
+        return {
+            'audio_id': audio_id,
+            'start': parsed[-4],
+            'end': parsed[-3],
+            'transform': parsed[-2],
+            'magnitude': parsed[-1]
+        }
+
+
 def parse_metadata(fns):
     """Parse filenames to build metadata 
     
@@ -58,23 +82,11 @@ def parse_metadata(fns):
     Returns:
         pd.DataFrame: a structured table contains parsed info
     """
-    def parse_base(fn):
-        x = basename(fn.replace('\n', ''))
-        x = x.split('.npy')[0]
-        x = x.split('_')
-        return x
-    
     data = []
-    for fn, row in zip(fns, map(parse_base, fns)):
-        d = {'audio_id': row[0], 'start': row[1], 'end': row[2]}
-        if len(row) < 5:
-            d.update({'transform': 'original', 'magnitude': 0})
-        else:
-            d.update({'transform': row[3],
-                      'magnitude': float(row[4][1:-1])})
-        d.update({'fn': fn})
-        data.append(d)
-
+    for fn, parsed in zip(fns, map(parse_fn, fns)):
+        parsed['magnitude'] = float(parse_bracket(parsed['magnitude'])[0])
+        parsed['fn'] = fn
+        data.append(parsed)
     return pd.DataFrame(data)
 
 
@@ -88,7 +100,7 @@ def calc_latent_dist(Z, metadata, metric='euclidean'):
     Returns:
         sp.csr_matrix: resulted data
     """
-    originals = metadata[metadata['transform'] == 'original']
+    originals = metadata[metadata['transform'] == 'OG']
     mask = np.zeros(Z.shape[0], dtype=bool)
     mask[originals.index] = True
     z_original = Z[mask]

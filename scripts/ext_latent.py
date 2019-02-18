@@ -111,7 +111,7 @@ if __name__ == "__main__":
     parser.add_argument("music_files",
                         help='text file contains all the file names of music')
     parser.add_argument("task", type=str, default='autotagging',
-                        choices=set(TASK_MODEL_MAP.keys()),
+                        choices=set(TASK_MODEL_MAP.keys()) | {'mfcc'},
                         help="type of the task of which the model is trained")
     parser.add_argument("model_path", help='path to model checkpoint dump')
     parser.add_argument("out_fn", help='filename to dump latent points and metadata')
