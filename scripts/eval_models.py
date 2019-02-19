@@ -28,17 +28,22 @@ from musiclatentconsistency.utils import (save_mulaw,
 from audiodistances.utils import parmap 
 from musicnn.models import (VGGlike2DAutoTagger,
                             VGGlike2DAutoEncoder,
-                            VGGlike2DUNet)
+                            VGGlike2DUNet,
+                            ShallowAutoTagger)
 from musicnn.config import Config as cfg
 from musicnn.datasets.autotagging import TAGS
 from musicnn.datasets.instrecognition import CLS
 from musicnn.datasets import files
 from musicnn.evaluation.metrics import _ndcg, _apk, roc_auc_score
 
+from ext_latent import _mfcc
+
 
 TASK_MODEL_MAP = {
     'auto_tagging': partial(VGGlike2DAutoTagger,
                             n_outputs=len(TAGS), layer1_channels=16),
+    'auto_tagging_mfcc': partial(ShallowAutoTagger,
+                                 n_outputs=len(TAGS), feat_dim=120),
     'inst_recognition': partial(VGGlike2DAutoTagger,
                                 n_outputs=len(CLS), layer1_channels=16),
     'auto_encoder': partial(VGGlike2DAutoEncoder, layer1_channels=16),
@@ -69,25 +74,36 @@ def _forward(fn, model, sr=22050):
     else:
         y, sr = librosa.load(fn, sr=sr)
     
+    # make sure the input is right dtype
     y = y.astype(np.float32)
-    if len(y) > model.sig_len:
-        # find the center and crop from there
-        mid = int(len(y) / 2)
-        half_len = int(model.sig_len / 2)
-        start_point = mid - half_len
-        y = y[start_point: start_point + model.sig_len]
-    
-    elif len(y) < model.sig_len:
-        # zero-pad
-        rem = model.sig_len - len(y)
-        y = np.r_[y, np.zeros((rem,), dtype=y.dtype)]
-    
-    inp = torch.from_numpy(y)[None]
-    infer = model(inp)
-    if isinstance(model, VGGlike2DAutoEncoder):
-        infer = (infer[0].data.numpy()[0], infer[1].data.numpy()[0])
+
+    # MFCC baseline model
+    if isinstance(model, ShallowAutoTagger):
+        # calculate MFCC
+        m = _mfcc(y, sr)
+        inp = torch.from_numpy(m)[None]
+        infer = model(inp)
+        
+    # VGGlike model
     else:
-        infer = infer.data.numpy()[0]
+        if len(y) > model.sig_len:
+            # find the center and crop from there
+            mid = int(len(y) / 2)
+            half_len = int(model.sig_len / 2)
+            start_point = mid - half_len
+            y = y[start_point: start_point + model.sig_len]
+
+        elif len(y) < model.sig_len:
+            # zero-pad
+            rem = model.sig_len - len(y)
+            y = np.r_[y, np.zeros((rem,), dtype=y.dtype)]
+
+        inp = torch.from_numpy(y)[None]
+        infer = model(inp)
+        if isinstance(model, VGGlike2DAutoEncoder):
+            infer = (infer[0].data.numpy()[0], infer[1].data.numpy()[0])
+        else:
+            infer = infer.data.numpy()[0]
         
     return y, infer
 
@@ -149,7 +165,7 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
         inp, pred = _forward(fn, model)
         
         # retrieve the ground truth and measure clip-wise metric
-        if task == 'auto_tagging':
+        if (task == 'auto_tagging') or (task == 'auto_tagging_mfcc')
             k = 10
             
             # retrieve tags

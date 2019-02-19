@@ -51,7 +51,10 @@ def load_distance_data(data_fn, filelist_fn, domain='input',
 
 def parse_fn(fn):
     """"""
-    parsed = basename(fn.replace('\n', '')).split('_')
+    parsed = basename(
+        fn.replace('\n', '').replace('_gmm', '')
+    ).split('_')
+    
     if all(['_{}_'.format(pt) not in fn
             for pt in set(cfg.PERTURBATIONS.keys())]):  # originals
         audio_id = '_'.join(parsed[:-2])

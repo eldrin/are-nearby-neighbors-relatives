@@ -55,6 +55,31 @@ def _extract_latent(fn, model, sr=22050):
     ).data.numpy()[0]
 
 
+
+def _mfcc(y, sr):
+    """Calc MFCC feature
+    
+    Args:
+        y (np.ndarray): signal (1d)
+        sr (int): sampling rate
+    
+    Returns:
+        np.ndarray: MFCC-based feature (6 * n_mfcc,)
+    """
+    # get MFCC vectors (t, n_mfcc)
+    m = librosa.feature.mfcc(y, sr=sr).T 
+    dm = m[1:] - m[:-1]
+    ddm = dm[1:] - dm[:-1]
+    
+    # get stats
+    feature = np.r_[
+        m.mean(0), dm.mean(0), ddm.mean(0),
+        m.std(0), dm.std(0), ddm.std(0)
+    ]
+    
+    return feature  # (n_mfcc * 6,)
+
+
 def _extract_mfcc(fn, sr=22050):
     """Extract MFCC
     
@@ -68,20 +93,8 @@ def _extract_mfcc(fn, sr=22050):
     if basename(fn).split('.')[-1] == 'npy':
         y = load_mulaw(fn)
     else:
-        y, sr = librosa.load(fn, sr=sr)
-
-    # get MFCC vectors (t, n_mfcc)
-    m = librosa.feature.mfcc(y, sr=sr).T 
-    dm = m[1:] - m[:-1]
-    ddm = dm[1:] - dm[:-1]
-    
-    # get stats
-    feature = np.r_[
-        m.mean(0), dm.mean(0), ddm.mean(0),
-        m.std(0), dm.std(0), ddm.std(0)
-    ]
-    
-    return feature  # (n_mfcc * 6,)
+        y, sr = librosa.load(fn, sr=sr) 
+    return _mfcc(y, sr)
 
 
 def ext_latents(fns, out_fn, model=None, n_jobs=1):
