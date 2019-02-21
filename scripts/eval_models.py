@@ -38,7 +38,7 @@ from musicnn.evaluation.metrics import _ndcg, _apk, roc_auc_score
 
 from ext_latent import _mfcc
 
-
+AT_LABEL_MAP = pkl.load(open(files.msd_lastfm50_label(), 'rb'))
 TASK_MODEL_MAP = {
     'auto_tagging': partial(VGGlike2DAutoTagger,
                             n_outputs=len(TAGS), layer1_channels=16),
@@ -50,7 +50,7 @@ TASK_MODEL_MAP = {
     'source_separation': partial(VGGlike2DUNet, layer1_channels=16)
 }
 TASK_LABEL_MAP = {
-    'auto_tagging': pkl.load(open(files.msd_lastfm50_label(), 'rb')),
+    'auto_tagging': AT_LABEL_MAP,
     'inst_recognition': lambda audio_id: parse_bracket(audio_id)[0],
     'auto_encoder': None,
     'source_separation': None
@@ -80,9 +80,9 @@ def _forward(fn, model, sr=22050):
     # MFCC baseline model
     if isinstance(model, ShallowAutoTagger):
         # calculate MFCC
-        m = _mfcc(y, sr)
+        m = _mfcc(y, sr).astype(np.float32)
         inp = torch.from_numpy(m)[None]
-        infer = model(inp)
+        infer = model(inp).data.numpy()[0]
         
     # VGGlike model
     else:
@@ -165,13 +165,13 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
         inp, pred = _forward(fn, model)
         
         # retrieve the ground truth and measure clip-wise metric
-        if (task == 'auto_tagging') or (task == 'auto_tagging_mfcc')
+        if (task == 'auto_tagging') or (task == 'auto_tagging_mfcc'):
             k = 10
             
             # retrieve tags
             t = [
                 TAGS[tag] for tag
-                in TASK_LABEL_MAP[task][info['audio_id'] + '.npy']
+                in TASK_LABEL_MAP['auto_tagging'][info['audio_id'] + '.npy']
             ]
             p = np.argsort(-pred)[:k]
             
@@ -273,11 +273,12 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
     # calc global metrics
     for transform in TRUES.keys():
         
-        if task == 'auto_tagging':         
+        if (task == 'auto_tagging') or (task == 'auto_tagging_mfcc'):
             t, p = np.array(TRUES[transform]), np.array(PREDS[transform])
             if not np.all(t.sum(axis=0) != 0):
                 mask = t.sum(axis=0) != 0
                 t, p = t[:, mask], p[:, mask]  
+                
             errors.append({
                 'transform': transform[0],
                 'magnitude': transform[1],
