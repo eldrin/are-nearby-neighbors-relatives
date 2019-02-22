@@ -20,14 +20,7 @@ from musicnn.models import (VGGlike2DAutoTagger,
                             VGGlike2DUNet)
 from musicnn.datasets.autotagging import TAGS
 from musicnn.datasets.instrecognition import CLS
-
-
-TASK_MODEL_MAP = {
-    'auto_tagging': partial(VGGlike2DAutoTagger, n_outputs=len(TAGS)),
-    'inst_recognition': partial(VGGlike2DAutoTagger, n_outputs=len(CLS)),
-    'auto_encoder': VGGlike2DAutoEncoder,
-    'source_separation': VGGlike2DUNet
-}
+from eval_models import TASK_MODEL_MAP
 
 
 def _extract_latent(fn, model, sr=22050):
