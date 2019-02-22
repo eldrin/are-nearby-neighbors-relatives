@@ -17,7 +17,8 @@ from musiclatentconsistency.utils import save_mulaw, load_mulaw, parse_metadata
 from audiodistances.utils import parmap
 from musicnn.models import (VGGlike2DAutoTagger,
                             VGGlike2DAutoEncoder,
-                            VGGlike2DUNet)
+                            VGGlike2DUNet,
+                            ShallowAutoTagger)
 from musicnn.datasets.autotagging import TAGS
 from musicnn.datasets.instrecognition import CLS
 
@@ -52,6 +53,11 @@ def _extract_latent(fn, model, sr=22050):
         half_len = int(model.sig_len / 2)
         start_point = mid - half_len
         y = y[start_point: start_point + model.sig_len]
+
+    elif len(y) < model.sig_len:
+        # zero-pad
+        rem = model.sig_len - len(y)
+        y = np.r_[y, np.zeros((rem,), dtype=y.dtype)]
 
     return model.get_bottleneck(
         torch.from_numpy(y)[None]
