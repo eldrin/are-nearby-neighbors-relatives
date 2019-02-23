@@ -29,7 +29,9 @@ from audiodistances.utils import parmap
 from musicnn.models import (VGGlike2DAutoTagger,
                             VGGlike2DAutoEncoder,
                             VGGlike2DUNet,
-                            ShallowAutoTagger)
+                            MFCCAutoTagger,
+                            MFCCAutoEncoder,
+                            MFCCAESourceSeparator)
 from musicnn.config import Config as cfg
 from musicnn.datasets.autotagging import TAGS
 from musicnn.datasets.instrecognition import CLS
@@ -42,12 +44,14 @@ AT_LABEL_MAP = pkl.load(open(files.msd_lastfm50_label(), 'rb'))
 TASK_MODEL_MAP = {
     'auto_tagging': partial(VGGlike2DAutoTagger,
                             n_outputs=len(TAGS), layer1_channels=16),
-    'auto_tagging_mfcc': partial(ShallowAutoTagger,
-                                 n_outputs=len(TAGS), feat_dim=120),
+    'auto_tagging_mfcc': partial(MFCCAutoTagger, n_outputs=len(TAGS)),
     'inst_recognition': partial(VGGlike2DAutoTagger,
                                 n_outputs=len(CLS), layer1_channels=16),
+    'inst_recognition_mfcc': partial(MFCCAutoTagger, n_outputs=len(CLS)),
     'auto_encoder': partial(VGGlike2DAutoEncoder, layer1_channels=16),
-    'source_separation': partial(VGGlike2DUNet, layer1_channels=16)
+    'inst_encoder_mfcc': MFCCAutoEncoder,
+    'source_separation': partial(VGGlike2DUNet, layer1_channels=16),
+    'source_separation_mfcc': MFCCAESourceSeparator,
 }
 TASK_LABEL_MAP = {
     'auto_tagging': AT_LABEL_MAP,
@@ -77,33 +81,24 @@ def _forward(fn, model, sr=22050):
     # make sure the input is right dtype
     y = y.astype(np.float32)
 
-    # MFCC baseline model
-    if isinstance(model, ShallowAutoTagger):
-        # calculate MFCC
-        m = _mfcc(y, sr).astype(np.float32)
-        inp = torch.from_numpy(m)[None]
-        infer = model(inp).data.numpy()[0]
-        
-    # VGGlike model
+    if len(y) > model.sig_len:
+        # find the center and crop from there
+        mid = int(len(y) / 2)
+        half_len = int(model.sig_len / 2)
+        start_point = mid - half_len
+        y = y[start_point: start_point + model.sig_len]
+
+    elif len(y) < model.sig_len:
+        # zero-pad
+        rem = model.sig_len - len(y)
+        y = np.r_[y, np.zeros((rem,), dtype=y.dtype)]
+
+    inp = torch.from_numpy(y)[None]
+    infer = model(inp)
+    if isinstance(model, VGGlike2DAutoEncoder):
+        infer = (infer[0].data.numpy()[0], infer[1].data.numpy()[0])
     else:
-        if len(y) > model.sig_len:
-            # find the center and crop from there
-            mid = int(len(y) / 2)
-            half_len = int(model.sig_len / 2)
-            start_point = mid - half_len
-            y = y[start_point: start_point + model.sig_len]
-
-        elif len(y) < model.sig_len:
-            # zero-pad
-            rem = model.sig_len - len(y)
-            y = np.r_[y, np.zeros((rem,), dtype=y.dtype)]
-
-        inp = torch.from_numpy(y)[None]
-        infer = model(inp)
-        if isinstance(model, VGGlike2DAutoEncoder):
-            infer = (infer[0].data.numpy()[0], infer[1].data.numpy()[0])
-        else:
-            infer = infer.data.numpy()[0]
+        infer = infer.data.numpy()[0]
         
     return y, infer
 
@@ -155,7 +150,7 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
         if key not in PREDS:
             PREDS[key] = []
         
-        if (task == 'source_separation') and ('_mixture_' not in fn):
+        if ('source_separation' in task) and ('_mixture_' not in fn):
             continue
         # if task == 'source_separation':
         #     if not bool(np.random.binomial(1, 0.1)):
@@ -165,7 +160,7 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
         inp, pred = _forward(fn, model)
         
         # retrieve the ground truth and measure clip-wise metric
-        if (task == 'auto_tagging') or (task == 'auto_tagging_mfcc'):
+        if 'auto_tagging' in task:
             k = 10
             
             # retrieve tags
@@ -187,9 +182,9 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
                 'ap@10': _apk(t, p, k=k),
             })
             
-        elif task == 'inst_recognition':
+        elif 'inst_recognition' in task:
             # retrieve pre-dominant instrument
-            t = CLS[TASK_LABEL_MAP[task](info['audio_id'])] 
+            t = CLS[TASK_LABEL_MAP['inst_recognition'](info['audio_id'])] 
             p = np.argmax(pred)
             
             errors.append({
@@ -199,7 +194,7 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
                 'accuracy': 1 if t == p else 0,
             })
             
-        elif task == 'auto_encoder':
+        elif 'auto_encoder' in task:
             true, pred = pred 
             
             errors.append({
@@ -209,7 +204,7 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
                 'mse': np.mean((true - pred)**2)
             })
             
-        elif task == 'source_separation': 
+        elif 'source_separation' in task:
             phase = np.angle(
                 librosa.stft(inp, n_fft=cfg.N_FFT, hop_length=cfg.HOP_SZ)
             )[None]
@@ -273,7 +268,7 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
     # calc global metrics
     for transform in TRUES.keys():
         
-        if (task == 'auto_tagging') or (task == 'auto_tagging_mfcc'):
+        if 'auto_tagging' in task:
             t, p = np.array(TRUES[transform]), np.array(PREDS[transform])
             if not np.all(t.sum(axis=0) != 0):
                 mask = t.sum(axis=0) != 0
@@ -285,7 +280,9 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
                 'roc-auc-track': roc_auc_score(t, p, average='samples'),
                 'roc-auc-tag': roc_auc_score(t, p, average='macro')
             })
-        elif task in {'auto_encoder', 'source_separation', 'inst_recognition'}:
+        elif any(
+            [t in task for t
+             in {'auto_encoder', 'source_separation', 'inst_recognition'}]):
             # no global metric is required to these cases
             continue
         else: 
