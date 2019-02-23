@@ -24,7 +24,8 @@ from musiclatentconsistency.utils import (save_mulaw,
                                           load_mulaw,
                                           parse_metadata,
                                           parse_bracket,
-                                          parse_fn)
+                                          parse_fn,
+                                          pad_or_crop)
 from audiodistances.utils import parmap 
 from musicnn.models import (VGGlike2DAutoTagger,
                             VGGlike2DAutoEncoder,
@@ -215,7 +216,10 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
             true_v, _ = librosa.load(
                 fn.replace('_mixture_', '_vocals_'), sr=cfg.SAMPLE_RATE)
             true_a, _ = librosa.load(
-                fn.replace('_mixture_', '_accomp_'), sr=cfg.SAMPLE_RATE)
+                fn.replace('_mixture_', '_accomp_'), sr=cfg.SAMPLE_RATE) 
+            # pre-process the length
+            true_v = pad_or_crop(true_v, model.sig_len)
+            true_a = pad_or_crop(true_a, model.sig_len)
              
             result = {
                 'transform': transform_name,

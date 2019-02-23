@@ -153,7 +153,7 @@ if __name__ == "__main__":
                         help='text file contains all the file names of music')
     parser.add_argument("out_path", help='path to dump output files')
     parser.add_argument("resolution_type", type=str, default='low',
-                        help='resolution of perturbation {"low", "high"}')
+                        help='resolution of perturbation {"low", "high", "all"}')
     parser.add_argument("--n-jobs", type=int, help='number of parallel jobs')
     args = parser.parse_args()
 
@@ -162,11 +162,12 @@ if __name__ == "__main__":
         fns = [l.replace('\n', '') for l in f.readlines()]
         
     # set resolution
-    perturb = (
-        cfg.PERTURBATIONS
-        if args.resolution_type == 'low'
-        else cfg.PERTURBATIONS_HI_RES
-    )
+    if args.resolution_type == 'high':
+        perturb = cfg.PERTURBATIONS
+    elif args.resolution_type == 'low':
+        perturb = cfg.PERTURBATIONS_HI_RES
+    elif args.resolution_type == 'all':
+        perturb = cfg.PERTURBATIONS_HI_LOW
 
     # process!
     transform(fns, args.out_path, perturb, n_jobs=args.n_jobs)

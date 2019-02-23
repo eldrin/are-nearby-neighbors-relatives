@@ -151,3 +151,31 @@ def load_mulaw(fn, quantization_channel=256):
 
 def parse_bracket(s):
     return re.findall('\[(.*?)\]', s)
+
+
+def pad_or_crop(y, sig_len): 
+    """Regulate signal length by given target length
+    
+    if length of y is shorter than sig_len, it pads
+    if length of y is longer than sig_len, it crop the center
+    
+    Args:
+        y (np.ndarray): input signal
+        sig_len (int): target excerpt length
+    
+    Returns:
+        np.ndarray: processed signal
+    """
+    if len(y) > sig_len:
+        # find the center and crop from there
+        mid = int(len(y) / 2)
+        half_len = int(sig_len / 2)
+        start_point = mid - half_len
+        y = y[start_point: start_point + model.sig_len]
+
+    elif len(y) < model.sig_len:
+        # zero-pad
+        rem = sig_len - len(y)
+        y = np.r_[y, np.zeros((rem,), dtype=y.dtype)]
+        
+    return y

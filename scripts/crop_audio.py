@@ -105,7 +105,7 @@ def _random_crop(in_fn, out_root, sig_len, n_samples=1, sr=22050):
         y, sr = librosa.load(in_fn, sr=sr)
         
     # check nbr of chunks is too many considering signal length
-    assert sig_len * n_samples > len(y)
+    assert sig_len * n_samples < len(y)
     
     info = [_save(sig, sr, st)
             for sig, st
@@ -125,11 +125,12 @@ def crop_signals(fns, out_root, n_samples, sr=22050, sig_len=44100, n_jobs=1):
         sig_len (int): length of the signal 
         n_jobs (int): number of parallel jobs
     """
-    info = parmap(
+    info = list(parmap(
         partial(_random_crop, out_root=out_root,
                 sig_len=sig_len, n_samples=n_samples, sr=sr),
         fns, n_workers=n_jobs, verbose=True
-    )
+    ))
+    print(info)
     with open(join(out_root, 'crop_info.pkl'), 'wb') as f:
         pkl.dump(dict(info), f)
     
