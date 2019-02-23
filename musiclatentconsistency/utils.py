@@ -171,7 +171,7 @@ def pad_or_crop(y, sig_len):
         mid = int(len(y) / 2)
         half_len = int(sig_len / 2)
         start_point = mid - half_len
-        y = y[start_point: start_point + model.sig_len]
+        y = y[start_point: start_point + sig_len]
 
     elif len(y) < model.sig_len:
         # zero-pad
