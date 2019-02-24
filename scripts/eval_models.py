@@ -50,7 +50,7 @@ TASK_MODEL_MAP = {
                                 n_outputs=len(CLS), layer1_channels=16),
     'inst_recognition_mfcc': partial(MFCCAutoTagger, n_outputs=len(CLS)),
     'auto_encoder': partial(VGGlike2DAutoEncoder, layer1_channels=16),
-    'inst_encoder_mfcc': MFCCAutoEncoder,
+    'auto_encoder_mfcc': MFCCAutoEncoder,
     'source_separation': partial(VGGlike2DUNet, layer1_channels=16),
     'source_separation_mfcc': MFCCAESourceSeparator,
 }
@@ -96,7 +96,7 @@ def _forward(fn, model, sr=22050):
 
     inp = torch.from_numpy(y)[None]
     infer = model(inp)
-    if isinstance(model, VGGlike2DAutoEncoder):
+    if isinstance(model, (VGGlike2DAutoEncoder, MFCCAutoEncoder)):
         infer = (infer[0].data.numpy()[0], infer[1].data.numpy()[0])
     else:
         infer = infer.data.numpy()[0]

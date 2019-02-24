@@ -1,4 +1,4 @@
-from os.path import join, basename, dirname
+from os.path import join, basename, dirname, splitext
 import re
 import numpy as np
 import pandas as pd
@@ -9,7 +9,7 @@ from .config import Config as cfg
 
 
 def load_distance_data(data_fn, filelist_fn, domain='input',
-                       latent_metric='euclidean'):
+                       latent_metric='euclidean', header=False):
     """Load and convert data to pandas DataFrame to ease of analysis
     
     Args:
@@ -29,7 +29,10 @@ def load_distance_data(data_fn, filelist_fn, domain='input',
     """ 
     # load metadata
     with open(filelist_fn, 'r') as f:
-        metadata = parse_metadata(f.readlines())
+        lines = f.readlines()
+        if header:
+            lines = lines[1:]
+        metadata = parse_metadata(lines)
     
     # load distance data
     if domain == 'input':
@@ -173,7 +176,7 @@ def pad_or_crop(y, sig_len):
         start_point = mid - half_len
         y = y[start_point: start_point + sig_len]
 
-    elif len(y) < model.sig_len:
+    elif len(y) < sig_len:
         # zero-pad
         rem = sig_len - len(y)
         y = np.r_[y, np.zeros((rem,), dtype=y.dtype)]
