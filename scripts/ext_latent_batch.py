@@ -12,9 +12,9 @@ import torch
 import numpy as np
 import pandas as pd
 import librosa
+from tqdm import tqdm
 
 from musiclatentconsistency.utils import save_mulaw, load_mulaw, parse_metadata
-from audiodistances.utils import parmap
 from musicnn.models import (VGGlike2DAutoTagger,
                             VGGlike2DAutoEncoder,
                             VGGlike2DUNet,
@@ -112,7 +112,7 @@ def _extract_mfcc(fn, sr=22050, is_mulaw=True):
     return _mfcc(y, sr)
 
 
-def ext_latents(fns, out_fn, model=None, n_jobs=1, is_mulaw=True):
+def ext_latents(fns, out_fn, model=None, n_jobs=1, is_mulaw=True, batch_sz=100):
     """Extract latent features
 
     Args:
@@ -121,13 +121,53 @@ def ext_latents(fns, out_fn, model=None, n_jobs=1, is_mulaw=True):
         model (BaseModel, None, 'mfcc'): model used for the extraction
         n_jobs (int): number of parallel jobs
     """
-    if (model is None) or (model == 'mfcc'):
-        f = partial(_extract_mfcc, is_mulaw=is_mulaw)
-    else:
-        f = partial(_extract_latent, model=model, is_mulaw=is_mulaw)
+    is_gpu = next(model.parameters()).is_cuda
 
-    # process
-    Z = parmap(f, fns, n_workers=n_jobs, verbose=True, total=len(fns))
+    # if (model is None) or (model == 'mfcc'):
+    #     f = partial(_extract_mfcc, is_mulaw=is_mulaw)
+    # else:
+    #     f = partial(_extract_latent, model=model, is_mulaw=is_mulaw)
+
+    batch = []
+    Z = []
+    for fn in tqdm(fns, ncols=80):
+        if basename(fn).split('.')[-1] == 'npy':
+            if is_mulaw:
+                y = load_mulaw(fn)
+            else:
+                y = np.load(fn)
+        else:
+            y, sr = librosa.load(fn, sr=sr)
+
+        y = y.astype(np.float32)
+        if len(y) > model.sig_len:
+            # find the center and crop from there
+            mid = int(len(y) / 2)
+            half_len = int(model.sig_len / 2)
+            start_point = mid - half_len
+            y = y[start_point: start_point + model.sig_len]
+
+        elif len(y) < model.sig_len:
+            # zero-pad
+            rem = model.sig_len - len(y)
+            y = np.r_[y, np.zeros((rem,), dtype=y.dtype)]
+
+        batch.append(y)
+
+        if len(batch) >= batch_sz:
+            batch = torch.from_numpy(np.array(batch).astype(np.float32))
+            if is_gpu:
+                batch = batch.cuda()
+
+            z = model.get_bottleneck(batch)
+
+            if is_gpu:
+                z = z.data.cpu().numpy()
+            else:
+                z = z.data.numpy()
+            Z.append(z)
+            batch = []
+    Z = np.concatenate(Z, axis=0)
 
     # save the output
     np.save(out_fn, np.array(Z))
