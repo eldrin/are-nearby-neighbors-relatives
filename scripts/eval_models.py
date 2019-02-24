@@ -96,7 +96,7 @@ def _forward(fn, model, sr=22050):
 
     inp = torch.from_numpy(y)[None]
     infer = model(inp)
-    if isinstance(model, VGGlike2DAutoEncoder):
+    if isinstance(model, (VGGlike2DAutoEncoder, MFCCAutoEncoder)):
         infer = (infer[0].data.numpy()[0], infer[1].data.numpy()[0])
     else:
         infer = infer.data.numpy()[0]
