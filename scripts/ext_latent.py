@@ -79,7 +79,7 @@ def _mfcc(y, sr):
         np.ndarray: MFCC-based feature (6 * n_mfcc,)
     """
     # get MFCC vectors (t, n_mfcc)
-    m = librosa.feature.mfcc(y, sr=sr).T
+    m = librosa.feature.mfcc(y, n_mfcc=40, sr=sr).T
     dm = m[1:] - m[:-1]
     ddm = dm[1:] - dm[:-1]
 
