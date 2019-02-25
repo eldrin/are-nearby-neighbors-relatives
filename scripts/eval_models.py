@@ -16,7 +16,7 @@ import torch
 import numpy as np
 import pandas as pd
 import librosa
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, r2_score
 import museval
 from tqdm import tqdm
 
@@ -202,7 +202,8 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
                 'track': info['audio_id'],
                 'transform': transform_name,
                 'magnitude': transform_mag,
-                'mse': np.mean((true - pred)**2)
+                'mse': np.mean((true - pred)**2),
+                'r2': r2_score(true.ravel(), pred.ravel())
             })
             
         elif 'source_separation' in task:
