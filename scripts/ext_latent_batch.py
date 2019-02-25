@@ -188,8 +188,10 @@ if __name__ == "__main__":
     parser.add_argument('--no-mulaw', dest='mulaw', action='store_false')
     parser.set_defaults(mulaw=True)
     parser.add_argument('--gpu', dest='is_gpu', action='store_true')
-    parser.add_argument('--no_gpu', dest='is_gpu', action='store_false')
+    parser.add_argument('--no-gpu', dest='is_gpu', action='store_false')
     parser.set_defaults(is_gpu=False)
+    parser.add_argumnet('--batch-sz', type=int, default=100,
+                        help='size of the batch')
     args = parser.parse_args()
 
     # load the file list
@@ -213,7 +215,8 @@ if __name__ == "__main__":
 
     # process!
     ext_latents(metadata.fn.values, args.out_fn, model,
-                n_jobs=args.n_jobs, is_mulaw=args.mulaw)
+                n_jobs=args.n_jobs, is_mulaw=args.mulaw,
+                batch_sz=args.batch_sz)
 
     # save metadata
     metadata.to_csv(
