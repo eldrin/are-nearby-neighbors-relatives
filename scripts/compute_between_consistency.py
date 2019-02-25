@@ -43,10 +43,10 @@ def get_within_X(dist='SIMPLE', include_original=False):
     dist_root = '/mnt/data/nmd_dist/msdlastfm50/'
     
     if dist == 'MCKL':
-        hi_metadata_fn = join(data_root, 'dist_calc_msd_1k_gmm_high_res_87.txt')
+        hi_metadata_fn = join(data_root, 'dist_calc_msd_1k_gmm_high_res.txt')
         lo_metadata_fn = join(data_root, 'dist_calc_msd_1k.txt')
     else:
-        hi_metadata_fn = join(data_root, 'dist_calc_msd_1k_high_res_87.txt')
+        hi_metadata_fn = join(data_root, 'dist_calc_msd_1k_high_res.txt')
         lo_metadata_fn = join(data_root, 'dist_calc_msd_1k.txt')
         
     # hi resolution
@@ -177,8 +177,6 @@ def get_between_XZ(z_fn, z_metadata_fn, type,
         between_XZ_consistency.columns = ['transform', 'magnitude', 'consistency_acc']
     
     return between_XZ_consistency
-
-
 
 
 if __name__ == "__main__":
