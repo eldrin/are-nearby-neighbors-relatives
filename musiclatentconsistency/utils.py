@@ -27,21 +27,23 @@ def load_distance_data(data_fn, filelist_fn, domain='input',
         sp.csr_matrix: (partial) distance matrix
         pd.DataFrame: contains metadata 
     """ 
-    # load metadata
-    with open(filelist_fn, 'r') as f:
-        lines = f.readlines()
-        if header:
-            lines = lines[1:]
-        metadata = parse_metadata(lines)
     
     # load distance data
     if domain == 'input':
+        # load metadata
+        with open(filelist_fn, 'r') as f:
+            lines = f.readlines()
+            if header:
+                lines = lines[1:]
+            metadata = parse_metadata(lines)
+            
         D = np.load(data_fn)
         D = sp.coo_matrix(
             (D[:, 2], (D[:, 0].astype(int), D[:, 1].astype(int))),
         ).tocsr()
         
     elif domain == 'latent':
+        metadata = pd.read_csv(filelist_fn, index_col=0)
         Z = np.load(data_fn)        
         D = calc_latent_dist(Z, metadata, metric=latent_metric)
         D = sp.coo_matrix(D).tocsr()

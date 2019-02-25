@@ -130,7 +130,7 @@ def ext_latents(fns, out_fn, model=None, n_jobs=1, is_mulaw=True, batch_sz=100):
 
     batch = []
     Z = []
-    for fn in tqdm(fns, ncols=80):
+    for i, fn in tqdm(enumerate(fns), total=len(fns), ncols=80):
         if basename(fn).split('.')[-1] == 'npy':
             if is_mulaw:
                 y = load_mulaw(fn)
@@ -154,7 +154,7 @@ def ext_latents(fns, out_fn, model=None, n_jobs=1, is_mulaw=True, batch_sz=100):
 
         batch.append(y)
 
-        if len(batch) >= batch_sz:
+        if (len(batch) >= batch_sz) or ((i + 1) == len(fns)):
             batch = torch.from_numpy(np.array(batch).astype(np.float32))
             if is_gpu:
                 batch = batch.cuda()

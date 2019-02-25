@@ -23,16 +23,18 @@ def within_space_error(D, metadata, perturbations=cfg.PERTURBATIONS,
     # filter out originals only
     originals = metadata[metadata['transform'] == 'OG']
     result = []  # main container for output
-    it = originals.index
+    it = enumerate(originals.index)
+    og_ix = list(range(len(originals.index)))
     if verbose:
-        it = tqdm(it, ncols=80)
+        it = tqdm(it, total=len(originals), ncols=80)
         
     perturbations.update({'OG': [0]})
     perturbations.move_to_end('OG', last=False)
-    for s in it:
+    for i, s in it:
         # get idx of originals of others
         s_id = metadata.loc[s, 'audio_id']
-        others = originals[originals['audio_id'] != s_id]
+        # others = originals[originals['audio_id'] != s_id]
+        others = [j for j in og_ix if j != i]
         mdata_ = metadata[metadata['audio_id'] == s_id]
 
         # for each perturbation and magnitude, get error
@@ -44,8 +46,8 @@ def within_space_error(D, metadata, perturbations=cfg.PERTURBATIONS,
                 
                 # if any 'other' point is more close to the transformation
                 # of the 'original' point, it'll be considered as error
-                d_ts_s = to_dense(D[targets_.index, s]).ravel()
-                d_ts_s_prime = to_dense(D[targets_.index, others.index]).ravel()
+                d_ts_s = to_dense(D[targets_.index, i]).ravel()
+                d_ts_s_prime = to_dense(D[targets_.index, others]).ravel()
                 error = 0 if np.all(d_ts_s < d_ts_s_prime) else 1
 
                 # register to output container
