@@ -190,7 +190,7 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', dest='is_gpu', action='store_true')
     parser.add_argument('--no-gpu', dest='is_gpu', action='store_false')
     parser.set_defaults(is_gpu=False)
-    parser.add_argumnet('--batch-sz', type=int, default=100,
+    parser.add_argument('--batch-sz', type=int, default=100,
                         help='size of the batch')
     args = parser.parse_args()
 
