@@ -354,7 +354,8 @@ if __name__ == "__main__":
     model.load_state_dict(checkpoint['state_dict'])
     
     # process!
-    results = evaluate_clips(fns, model, args.task, args.normalize, verbose=True)
+    results = evaluate_clips(fns, model, args.task,
+                             normalize=args.normalize, verbose=True)
 
     # save
     results.to_csv(args.out_fn)
