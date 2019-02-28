@@ -63,17 +63,8 @@ TASK_LABEL_MAP = {
 PERTURBATIONS = {'TS', 'PS', 'PN', 'EN', 'MP'}
 
 
-def _forward(fn, model, sr=22050):
-    """Helper function to extract latent embedding for a single music file
-
-    Args:
-        fn (str): filename for a single music file
-        out_root (str): path to dump output MFCCs
-        sr (int): sampling rate
-        
-    Returns:
-        np.ndarray: inference
-    """
+def load_audio(fn):
+    """""" 
     if basename(fn).split('.')[-1] == 'npy':
         y = load_mulaw(fn)
     else:
@@ -81,19 +72,21 @@ def _forward(fn, model, sr=22050):
     
     # make sure the input is right dtype
     y = y.astype(np.float32)
+    
+    return y
 
-    if len(y) > model.sig_len:
-        # find the center and crop from there
-        mid = int(len(y) / 2)
-        half_len = int(model.sig_len / 2)
-        start_point = mid - half_len
-        y = y[start_point: start_point + model.sig_len]
 
-    elif len(y) < model.sig_len:
-        # zero-pad
-        rem = model.sig_len - len(y)
-        y = np.r_[y, np.zeros((rem,), dtype=y.dtype)]
+def _forward(y, model, sr=22050):
+    """Helper function to extract latent embedding for a single music file
 
+    Args:
+        y (np.ndarray): input signal 
+        out_root (str): path to dump output MFCCs
+        sr (int): sampling rate
+        
+    Returns:
+        np.ndarray: inference
+    """
     inp = torch.from_numpy(y)[None]
     infer = model(inp)
     if isinstance(model, (VGGlike2DAutoEncoder, MFCCAutoEncoder)):
@@ -116,7 +109,7 @@ Track = namedtuple('Track', ['targets', 'rate'])
 Target = namedtuple('Target', ['audio'])
 
 
-def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
+def evaluate_clips(fns, model, task, batch_sz=128, normalize=False, verbose=False):
     """Evaluate given audio clips wrt tasks
     
     Args:
@@ -126,18 +119,34 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
                     {'auto_tagging', 'inst_recognition',
                      'auto_encoder', 'source_separation'}
         batch_sz (int): size of batch to process every iteration
+        normalize (bool): normalization setup
         verbose (bool): verbosity flag
     
     Returns:
         pd.DataFrame: a table contains results
     """
+    metadata = pd.DataFrame([parse_fn(fn) for fn in fns])
+    metadata['fn'] = fns
+    
+    # # sampling 100 original for sanity check
+    # og100 = metadata[metadata['transform'] == 'OG']['audio_id'].sample(100)
+    # metadata = metadata[metadata['audio_id'].isin(set(og100))] 
+    
+    # calculate all the original files mean dB
+    if normalize:
+        mean_dbs = []
+        for fn in tqdm(metadata['fn'].values, ncols=80):
+            y = load_audio(fn)
+            mean_dbs.append(librosa.amplitude_to_db(abs(librosa.stft(y))).mean())
+        metadata['meandB'] = mean_dbs
+    
     file_ext = '.' + fns[0].split('.')[-1]
-    if verbose: fns = tqdm(fns, ncols=80) 
-
+    if verbose: fns_ = tqdm(metadata['fn'].values, ncols=80)
+    else: fns_ = metadata['fn'].values
+    
     TRUES, PREDS = {}, {}  # for global metrics (ROC-AUC)
     errors = []
-    for fn in fns:
-        
+    for fn in fns_:
         info = parse_fn(fn)
         transform_name = info['transform']
         transform_mag = float(
@@ -153,12 +162,27 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
         
         if ('source_separation' in task) and ('_mixture_' not in fn):
             continue
-        # if task == 'source_separation':
-        #     if not bool(np.random.binomial(1, 0.1)):
-        #         continue
                 
         # prepare data & forward
-        inp, pred = _forward(fn, model)
+        # normalize the transformed data
+        # find the original audio's mean dB
+        if normalize:
+            mean_db_og = metadata[
+                (metadata['audio_id'] == info['audio_id']) &
+                (metadata['transform'] == 'OG')
+            ]['meandB'].values
+            mean_db_cur = metadata[
+                (metadata['audio_id'] == info['audio_id']) &
+                (metadata['transform'] == info['transform']) & 
+                (metadata['magnitude'] == info['magnitude'])
+            ]['meandB'].values
+            coef = np.float32(10**((mean_db_og - mean_db_cur) / 20))
+        else:
+            coef = np.float32(1)
+        
+        y = load_audio(fn) * coef
+        y = pad_or_crop(y, model.sig_len)
+        inp, pred = _forward(y, model)
         
         # retrieve the ground truth and measure clip-wise metric
         if 'auto_tagging' in task:
@@ -254,10 +278,15 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
                 track,
                 {'vocals': p_v, 'accompaniment': p_a}
             ).scores['targets']
+            # for normalization
+            n_res = museval.eval_mus_track(
+                track,
+                {'vocals': inp[:, None], 'accompaniment': inp[:, None]}
+            ).scores['targets']
             
             # for each target {'vocals', 'accompaniment'} the result
-            for target in res:
-                for i, frame in enumerate(target['frames']):
+            for target, n_target in zip(res, n_res):
+                for i, (frame, n_frame) in enumerate(zip(target['frames'], n_target['frames'])):
                     out = {
                         'track': info['audio_id'],
                         'transform': transform_name,
@@ -265,7 +294,10 @@ def evaluate_clips(fns, model, task, batch_sz=128, verbose=False):
                         'target': target['name'],
                         'frame': i
                     }
-                    out.update(frame['metrics'])
+                    out.update({
+                        key: frame['metrics'][key] - n_frame['metrics'][key]
+                        for key in frame['metrics'].keys()
+                    })
                     errors.append(out) 
         else:
             raise ValueError('[ERROR] Given task is not supported yet!')      
@@ -306,6 +338,9 @@ if __name__ == "__main__":
                         help="type of the task of which the model is trained")
     parser.add_argument("model_path", help='path to model checkpoint dump')
     parser.add_argument("out_fn", help='filename to dump latent points and metadata')
+    parser.add_argument('--normalize', dest='normalize', action='store_true')
+    parser.add_argument('--no-normalize', dest='normalize', action='store_false')
+    parser.set_defaults(normalize=False)
     args = parser.parse_args() 
 
     # load the file list
@@ -319,7 +354,7 @@ if __name__ == "__main__":
     model.load_state_dict(checkpoint['state_dict'])
     
     # process!
-    results = evaluate_clips(fns, model, args.task, verbose=True)
-    
+    results = evaluate_clips(fns, model, args.task, args.normalize, verbose=True)
+
     # save
     results.to_csv(args.out_fn)

@@ -5,7 +5,7 @@ from scipy.stats import spearmanr
 from tqdm import tqdm
 
 from .config import Config as cfg
-from .utils import to_dense
+from .utils import to_dense, load_distance_data
 
 
 def within_space_error(D, metadata, perturbations=cfg.PERTURBATIONS,
@@ -47,7 +47,7 @@ def within_space_error(D, metadata, perturbations=cfg.PERTURBATIONS,
                 # if any 'other' point is more close to the transformation
                 # of the 'original' point, it'll be considered as error
                 d_ts_s = to_dense(D[targets_.index, i]).ravel()
-                d_ts_s_prime = to_dense(D[targets_.index, others]).ravel()
+                d_ts_s_prime = to_dense(D[targets_.index][:, others]).ravel()
                 error = 0 if np.all(d_ts_s < d_ts_s_prime) else 1
 
                 # register to output container
@@ -144,3 +144,22 @@ def between_space_consistency_accuracy(within_X_error, within_Z_error):
     C_acc.columns = ['transform', 'magnitude', 'consistency_acc'] 
     
     return C_acc
+
+
+def get_within_Z(z_fn, z_metadata_fn, dist='euclidean',
+                 include_original=False, visualize=False):
+    Dz, z_metadata = load_distance_data(
+        z_fn, z_metadata_fn, domain='latent', latent_metric=dist,
+        header=True
+    )
+    within_Z = within_space_error(Dz, z_metadata, cfg.PERTURBATIONS_HI_LOW, verbose=True)
+    within_Z['consistency'] = within_Z['error'].apply(lambda x: 1 - x)
+    
+    if not include_original:
+        data = within_Z[within_Z['transform'] != 'OG']
+    
+    if visualize:
+        # visualization
+        visualize_data(data, value_key='consistency')
+    
+    return data
