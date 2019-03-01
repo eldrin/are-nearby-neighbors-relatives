@@ -29,8 +29,9 @@ def _extract_mfcc(fn, out_root, sig_len=44100, sr=22050, n_mfccs=25):
         y = load_mulaw(fn)
     else:
         y, sr = librosa.load(fn, sr=sr)
-
-    M = librosa.feature.mfcc(y, sr, n_mfcc=n_mfccs).T
+        
+    # we do not include the first coefficient
+    M = librosa.feature.mfcc(y, sr, n_mfcc=n_mfccs).T[:, 1:]
     out_fn = join(out_root, splitext(basename(fn))[0] + '.npy')
     np.save(out_fn, M)
 

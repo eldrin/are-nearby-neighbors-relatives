@@ -127,8 +127,9 @@ def _transform(fn, transformer, out_root,
         ])
 
         # librosa.output.write_wav(join(out_root, out_fn), y, sr, norm=True)
-        save_mulaw(join(out_root, out_fn),
-                   librosa.util.normalize(y))
+        # save_mulaw(join(out_root, out_fn),
+        #            librosa.util.normalize(y))
+        save_mulaw(join(out_root, out_fn), y)
 
 
 def transform(fns, out_root, perturbations=cfg.PERTURBATIONS,
