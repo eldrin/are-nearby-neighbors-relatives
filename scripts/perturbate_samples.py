@@ -12,6 +12,7 @@ import numpy as np
 import librosa
 
 from musiclatentconsistency.utils import save_mulaw, load_mulaw
+from musiclatentconsistency.loudness import lufs_norm
 from musiclatentconsistency.config import Config as cfg
 from audiodistances.utils import parmap
 from audioperturbator.transform import (PitchShifter,
@@ -116,6 +117,9 @@ def _transform(fn, transformer, out_root,
     # transform
     for a in get_transform_range(transformer, perturbations):
         y = transformer(x, a)
+        
+        # normalization
+        y = lufs_norm(y, x, cfg.FS)
 
         out_fn = '_'.join([
             basename(fn).split('.')[0],

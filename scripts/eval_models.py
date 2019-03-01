@@ -26,6 +26,7 @@ from musiclatentconsistency.utils import (save_mulaw,
                                           parse_bracket,
                                           parse_fn,
                                           pad_or_crop)
+from musiclatentconsistency.loudness import calculate_loudness
 from audiodistances.utils import parmap 
 from musicnn.models import (VGGlike2DAutoTagger,
                             VGGlike2DAutoEncoder,
@@ -137,7 +138,8 @@ def evaluate_clips(fns, model, task, batch_sz=128, normalize=False, verbose=Fals
         mean_dbs = []
         for fn in tqdm(metadata['fn'].values, ncols=80):
             y = load_audio(fn)
-            mean_dbs.append(librosa.amplitude_to_db(abs(librosa.stft(y))).mean())
+            # mean_dbs.append(librosa.amplitude_to_db(abs(librosa.stft(y))).mean())
+            mean_dbs.append(calculate_loudness(y))
         metadata['meandB'] = mean_dbs
     
     file_ext = '.' + fns[0].split('.')[-1]
