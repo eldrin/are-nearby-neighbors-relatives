@@ -133,15 +133,6 @@ def evaluate_clips(fns, model, task, batch_sz=128, normalize=False, verbose=Fals
     # og100 = metadata[metadata['transform'] == 'OG']['audio_id'].sample(100)
     # metadata = metadata[metadata['audio_id'].isin(set(og100))] 
     
-    # calculate all the original files mean dB
-    if normalize:
-        mean_dbs = []
-        for fn in tqdm(metadata['fn'].values, ncols=80):
-            y = load_audio(fn)
-            # mean_dbs.append(librosa.amplitude_to_db(abs(librosa.stft(y))).mean())
-            mean_dbs.append(calculate_loudness(y))
-        metadata['meandB'] = mean_dbs
-    
     file_ext = '.' + fns[0].split('.')[-1]
     if verbose: fns_ = tqdm(metadata['fn'].values, ncols=80)
     else: fns_ = metadata['fn'].values
@@ -166,23 +157,7 @@ def evaluate_clips(fns, model, task, batch_sz=128, normalize=False, verbose=Fals
             continue
                 
         # prepare data & forward
-        # normalize the transformed data
-        # find the original audio's mean dB
-        if normalize:
-            mean_db_og = metadata[
-                (metadata['audio_id'] == info['audio_id']) &
-                (metadata['transform'] == 'OG')
-            ]['meandB'].values
-            mean_db_cur = metadata[
-                (metadata['audio_id'] == info['audio_id']) &
-                (metadata['transform'] == info['transform']) & 
-                (metadata['magnitude'] == info['magnitude'])
-            ]['meandB'].values
-            coef = np.float32(10**((mean_db_og - mean_db_cur) / 20))
-        else:
-            coef = np.float32(1)
-        
-        y = load_audio(fn) * coef
+        y = load_audio(fn)
         y = pad_or_crop(y, model.sig_len)
         inp, pred = _forward(y, model)
         
@@ -340,10 +315,7 @@ if __name__ == "__main__":
                         help="type of the task of which the model is trained")
     parser.add_argument("model_path", help='path to model checkpoint dump')
     parser.add_argument("out_fn", help='filename to dump latent points and metadata')
-    parser.add_argument('--normalize', dest='normalize', action='store_true')
-    parser.add_argument('--no-normalize', dest='normalize', action='store_false')
-    parser.set_defaults(normalize=False)
-    args = parser.parse_args() 
+    args = parser.parse_args()
 
     # load the file list
     with open(args.music_files) as f:
@@ -356,8 +328,7 @@ if __name__ == "__main__":
     model.load_state_dict(checkpoint['state_dict'])
     
     # process!
-    results = evaluate_clips(fns, model, args.task,
-                             normalize=args.normalize, verbose=True)
+    results = evaluate_clips(fns, model, args.task, verbose=True)
 
     # save
     results.to_csv(args.out_fn)
