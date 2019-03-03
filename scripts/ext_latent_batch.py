@@ -18,19 +18,18 @@ from musiclatentconsistency.utils import save_mulaw, load_mulaw, parse_metadata
 from musicnn.models import (VGGlike2DAutoTagger,
                             VGGlike2DAutoEncoder,
                             VGGlike2DUNet,
-                            ShallowAutoTagger)
+                            MFCCAutoTagger)
 from musicnn.datasets.autotagging import TAGS
 from musicnn.datasets.instrecognition import CLS
 
 TASK_MODEL_MAP = {
     'auto_tagging': partial(VGGlike2DAutoTagger,
                             n_outputs=len(TAGS), layer1_channels=16),
-    'auto_tagging_mfcc': partial(ShallowAutoTagger,
-                                 n_outputs=len(TAGS), feat_dim=120),
     'inst_recognition': partial(VGGlike2DAutoTagger,
                                 n_outputs=len(CLS), layer1_channels=16),
     'auto_encoder': partial(VGGlike2DAutoEncoder, layer1_channels=16),
-    'source_separation': partial(VGGlike2DUNet, layer1_channels=16)
+    'source_separation': partial(VGGlike2DUNet, layer1_channels=16),
+    'mfcc': partial(MFCCAutoTagger, n_outputs=len(TAGS))
 }
 
 
@@ -67,51 +66,6 @@ def _extract_latent(fn, model, sr=22050, is_mulaw=True):
     ).data.numpy()[0]
 
 
-
-def _mfcc(y, sr):
-    """Calc MFCC feature
-
-    Args:
-        y (np.ndarray): signal (1d)
-        sr (int): sampling rate
-
-    Returns:
-        np.ndarray: MFCC-based feature (6 * n_mfcc,)
-    """
-    # get MFCC vectors (t, n_mfcc)
-    m = librosa.feature.mfcc(y, n_mfcc=40, sr=sr).T
-    dm = m[1:] - m[:-1]
-    ddm = dm[1:] - dm[:-1]
-
-    # get stats
-    feature = np.r_[
-        m.mean(0), dm.mean(0), ddm.mean(0),
-        m.std(0), dm.std(0), ddm.std(0)
-    ]
-
-    return feature  # (n_mfcc * 6,)
-
-
-def _extract_mfcc(fn, sr=22050, is_mulaw=True):
-    """Extract MFCC
-
-    Args:
-        fn (str): filename for a single music file
-        sr (int): sampling rate
-
-    Returns:
-        np.ndarray: MFCC feature vector
-    """
-    if basename(fn).split('.')[-1] == 'npy':
-        if is_mulaw:
-            y = load_mulaw(fn)
-        else:
-            y = np.load(fn)
-    else:
-        y, sr = librosa.load(fn, sr=sr)
-    return _mfcc(y, sr)
-
-
 def ext_latents(fns, out_fn, model=None, n_jobs=1, is_mulaw=True, batch_sz=100):
     """Extract latent features
 
@@ -122,12 +76,7 @@ def ext_latents(fns, out_fn, model=None, n_jobs=1, is_mulaw=True, batch_sz=100):
         n_jobs (int): number of parallel jobs
     """
     is_gpu = next(model.parameters()).is_cuda
-
-    # if (model is None) or (model == 'mfcc'):
-    #     f = partial(_extract_mfcc, is_mulaw=is_mulaw)
-    # else:
-    #     f = partial(_extract_latent, model=model, is_mulaw=is_mulaw)
-
+    
     batch = []
     Z = []
     for i, fn in tqdm(enumerate(fns), total=len(fns), ncols=80):
@@ -202,13 +151,11 @@ if __name__ == "__main__":
     metadata = parse_metadata(fns)
 
     # load the model
+    model = TASK_MODEL_MAP[args.task]()
+    model.eval()
     if args.model_path != 'mfcc':
         checkpoint = torch.load(args.model_path, lambda a, b: a)
-        model = TASK_MODEL_MAP[args.task]()
-        model.eval()
         model.load_state_dict(checkpoint['state_dict'])
-    else:
-        model = args.model_path
 
     if args.is_gpu:
         model = model.cuda()
