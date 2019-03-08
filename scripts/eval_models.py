@@ -64,10 +64,13 @@ TASK_LABEL_MAP = {
 PERTURBATIONS = {'TS', 'PS', 'PN', 'EN', 'MP'}
 
 
-def load_audio(fn):
+def load_audio(fn, mulaw=True):
     """""" 
     if basename(fn).split('.')[-1] == 'npy':
-        y = load_mulaw(fn)
+        if mulaw:
+            y = load_mulaw(fn)
+        else:
+            y = np.load(fn)
     else:
         y, sr = librosa.load(fn, sr=sr)
     
@@ -110,7 +113,7 @@ Track = namedtuple('Track', ['targets', 'rate'])
 Target = namedtuple('Target', ['audio'])
 
 
-def evaluate_clips(fns, model, task, batch_sz=128, normalize=False, verbose=False):
+def evaluate_clips(fns, model, task, mulaw=True, verbose=False):
     """Evaluate given audio clips wrt tasks
     
     Args:
@@ -119,8 +122,7 @@ def evaluate_clips(fns, model, task, batch_sz=128, normalize=False, verbose=Fals
         task (str): corresponding task for model
                     {'auto_tagging', 'inst_recognition',
                      'auto_encoder', 'source_separation'}
-        batch_sz (int): size of batch to process every iteration
-        normalize (bool): normalization setup
+        mulaw (bool): mulaw decoding for loading npy audio 
         verbose (bool): verbosity flag
     
     Returns:
@@ -157,7 +159,9 @@ def evaluate_clips(fns, model, task, batch_sz=128, normalize=False, verbose=Fals
             continue
                 
         # prepare data & forward
-        y = load_audio(fn)
+        y = load_audio(fn, mulaw)
+        if np.any(np.isnan(y)):
+            continue
         y = pad_or_crop(y, model.sig_len)
         inp, pred = _forward(y, model)
         
@@ -215,10 +219,12 @@ def evaluate_clips(fns, model, task, batch_sz=128, normalize=False, verbose=Fals
             pred_a = inp[:len(pred_v)] - pred_v
             
             # get ground truth sources
-            true_v, _ = librosa.load(
-                fn.replace('_mixture_', '_vocals_'), sr=cfg.SAMPLE_RATE)
-            true_a, _ = librosa.load(
-                fn.replace('_mixture_', '_accomp_'), sr=cfg.SAMPLE_RATE) 
+            true_v = load_audio(fn.replace('_mixture_', '_vocals_'), mulaw)
+            true_a = load_audio(fn.replace('_mixture_', '_accomp_'), mulaw)
+            # true_v, _ = librosa.load(
+            #     fn.replace('_mixture_', '_vocals_'), sr=cfg.SAMPLE_RATE)
+            # true_a, _ = librosa.load(
+            #     fn.replace('_mixture_', '_accomp_'), sr=cfg.SAMPLE_RATE) 
             # pre-process the length
             true_v = pad_or_crop(true_v, model.sig_len)
             true_a = pad_or_crop(true_a, model.sig_len)
@@ -248,22 +254,26 @@ def evaluate_clips(fns, model, task, batch_sz=128, normalize=False, verbose=Fals
                     'accompaniment': Target(audio=p_v)
                 },
                 rate=cfg.SAMPLE_RATE
-            ) 
+            )
             
             # evaluate
             res = museval.eval_mus_track(
                 track,
                 {'vocals': p_v, 'accompaniment': p_a}
             ).scores['targets']
-            # for normalization
-            n_res = museval.eval_mus_track(
-                track,
-                {'vocals': inp[:, None], 'accompaniment': inp[:, None]}
-            ).scores['targets']
             
-            # for each target {'vocals', 'accompaniment'} the result
-            for target, n_target in zip(res, n_res):
-                for i, (frame, n_frame) in enumerate(zip(target['frames'], n_target['frames'])):
+            # # for normalization
+            # n_res = museval.eval_mus_track(
+            #     track,
+            #     {'vocals': inp[:, None], 'accompaniment': inp[:, None]}
+            # ).scores['targets']
+            
+            # # for each target {'vocals', 'accompaniment'} the result
+            # for target, n_target in zip(res, n_res):
+            #     for i, (frame, n_frame) in enumerate(zip(target['frames'], n_target['frames'])):
+
+            for target in res:
+                for i, frame in enumerate(target['frames']):
                     out = {
                         'track': info['audio_id'],
                         'transform': transform_name,
@@ -272,7 +282,8 @@ def evaluate_clips(fns, model, task, batch_sz=128, normalize=False, verbose=Fals
                         'frame': i
                     }
                     out.update({
-                        key: frame['metrics'][key] - n_frame['metrics'][key]
+                        # key: frame['metrics'][key] - n_frame['metrics'][key]
+                        key: frame['metrics'][key]
                         for key in frame['metrics'].keys()
                     })
                     errors.append(out) 
@@ -315,6 +326,9 @@ if __name__ == "__main__":
                         help="type of the task of which the model is trained")
     parser.add_argument("model_path", help='path to model checkpoint dump')
     parser.add_argument("out_fn", help='filename to dump latent points and metadata')
+    parser.add_argument('--mulaw', dest='mulaw', action='store_true')
+    parser.add_argument('--no-mulaw', dest='mulaw', action='store_false')
+    parser.set_defaults(mulaw=True)
     args = parser.parse_args()
 
     # load the file list
@@ -328,7 +342,8 @@ if __name__ == "__main__":
     model.load_state_dict(checkpoint['state_dict'])
     
     # process!
-    results = evaluate_clips(fns, model, args.task, verbose=True)
+    results = evaluate_clips(fns, model, args.task,
+                             verbose=True, mulaw=args.mulaw)
 
     # save
     results.to_csv(args.out_fn)

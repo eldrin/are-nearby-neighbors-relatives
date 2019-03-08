@@ -16,6 +16,7 @@ import musdb
 from tqdm import tqdm
 
 from musiclatentconsistency.config import Config as cfg
+from musiclatentconsistency.loudness import lufs_norm
 from audiodistances.utils import parmap
 from audioperturbator.transform import (PitchShifter,
                                         TimeStretcher,
@@ -54,22 +55,42 @@ def _transform_and_save(out_root, track_name, signal,
                         sample_rate, start, end, transformer,
                         magnitude, signal_category, no_transform=False): 
     """"""
-    if no_transform:
-        transformed = signal[start:end]
+    # slice
+    x = signal[start:end]
+    
+    if no_transform or (np.linalg.norm(x) < 0.01):
+        transformed = x
     else:
-        transformed = transformer(signal[start:end], magnitude)
+        try:
+            transformed = transformer(x, magnitude)
+
+            if np.linalg.norm(transformed) < 0.01:
+                transformed = x
+            else:
+                # normalization
+                transformed = lufs_norm(transformed, x, cfg.FS)
+
+        except Exception as e:
+            print(np.linalg.norm(x))
+            print(e)
 
     # get filename
-    fn_tmp = '{}_{}_{:d}_{:d}_{}.mp3'.format(
+    # fn_tmp = '{}_{}_{:d}_{:d}_{}.mp3'.format(
+    #     track_name, signal_category,
+    #     start, end, get_pert_id(transformer, magnitude)
+    # )
+
+    # save all of them
+    # save_mp3(
+    #     join(out_root, fn_tmp),
+    #     transformed, sample_rate
+    # )
+    
+    fn_tmp = '{}_{}_{:d}_{:d}_{}.npy'.format(
         track_name, signal_category,
         start, end, get_pert_id(transformer, magnitude)
     )
-
-    # save all of them
-    save_mp3(
-        join(out_root, fn_tmp),
-        transformed, sample_rate
-    )
+    np.save(join(out_root, fn_tmp), transformed)
 
 
 def process(musdb_root, out_root, perturbations=cfg.PERTURBATIONS,
@@ -132,6 +153,7 @@ def process(musdb_root, out_root, perturbations=cfg.PERTURBATIONS,
                                 no_transform
                             )
                         except Exception as e:
+                            print('Something wrong happened!')
                             print(e)
 
 

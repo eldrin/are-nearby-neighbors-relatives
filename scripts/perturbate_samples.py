@@ -98,7 +98,8 @@ def get_pert_id(transformer, magnitude):
 
 
 def _transform(fn, transformer, out_root,
-               perturbations=cfg.PERTURBATIONS,sr=22050):
+               perturbations=cfg.PERTURBATIONS,
+               normalization=True):
     """Transform given signal and save
 
     Args:
@@ -106,47 +107,48 @@ def _transform(fn, transformer, out_root,
         transformer (BaseTransformer): transformation class
         out_root (str): path to dump outputs
         perturbations (OrderedDict): perturbations set
-        sr (int): sampling rate of given input signal
+        normalization (bool): flag for normalization
     """
     # load the signal
     if basename(fn).split('.')[-1] == 'npy':
         x = load_mulaw(fn)
     else:
-        x, sr = librosa.load(fn, sr=sr)
+        x, sr = librosa.load(fn, sr=cfg.FS)
 
     # transform
     for a in get_transform_range(transformer, perturbations):
         y = transformer(x, a)
         
-        # normalization
-        y = lufs_norm(y, x, cfg.FS)
+        if normalization:
+            # normalization
+            y = lufs_norm(y, x, cfg.FS)
 
         out_fn = '_'.join([
             basename(fn).split('.')[0],
             get_pert_id(transformer, a)
         ])
 
-        # librosa.output.write_wav(join(out_root, out_fn), y, sr, norm=True)
-        # save_mulaw(join(out_root, out_fn),
-        #            librosa.util.normalize(y))
         save_mulaw(join(out_root, out_fn), y)
 
 
 def transform(fns, out_root, perturbations=cfg.PERTURBATIONS,
-              n_jobs=1):
+              normalization=True, n_jobs=1):
     """Transform given audio files
 
     Args:
         fns (str): file name of the music
         out_root (str): path to dump files
-        n_jobs (int): number of parallel jobs
+        perturbations (OrderedDict): perturbation and magnitude
+        normalization (bool): flag for normalization
+        n_jobs (int): number of parallel jobs to run
     """
     for T in ALL_TRANSFORMERS:
         parmap(
             partial(_transform,
                     transformer=T(),
                     perturbations=perturbations,
-                    out_root=out_root),
+                    out_root=out_root,
+                    normalization=normalization),
             fns, total=len(fns), n_workers=n_jobs, verbose=True
         )
 
@@ -159,6 +161,9 @@ if __name__ == "__main__":
     parser.add_argument("out_path", help='path to dump output files')
     parser.add_argument("resolution_type", type=str, default='low',
                         help='resolution of perturbation {"low", "high", "all"}')
+    parser.add_argument('--normalization', dest='norm', action='store_true')
+    parser.add_argument('--no-normalization', dest='norm', action='store_false')
+    parser.set_defaults(norm=True)
     parser.add_argument("--n-jobs", type=int, help='number of parallel jobs')
     args = parser.parse_args()
 
@@ -175,4 +180,5 @@ if __name__ == "__main__":
         perturb = cfg.PERTURBATIONS_HI_LOW
 
     # process!
-    transform(fns, args.out_path, perturb, n_jobs=args.n_jobs)
+    transform(fns, args.out_path, perturb,
+              n_jobs=args.n_jobs, normalization=args.norm)
